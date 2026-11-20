@@ -9,7 +9,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
       isGlobal: true,
       envFilePath: ['.env', '../.env.local'],
       validate: (config: Record<string, string | undefined>) => {
-        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'FRONTEND_URL']) {
+        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'FRONTEND_URL', 'BETTER_AUTH_SECRET']) {
           if (!config[key]) throw new Error(`Missing required environment variable: ${key}`);
         }
         const port = Number(config.PORT ?? 4000);
