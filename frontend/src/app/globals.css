@@ -1,7 +1,36 @@
 @import "tailwindcss";
 
-body {
-  background: #fff;
-  color: #171717;
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --animate-aurora: aurora 60s linear infinite;
+  @keyframes aurora {
+    from { background-position: 50% 50%, 50% 50%; }
+    to { background-position: 350% 50%, 350% 50%; }
+  }
 }
+
+:root {
+  --font-inter: Inter, Arial, sans-serif;
+  --font-manrope: Manrope, Inter, Arial, sans-serif;
+  --deep-teal: #0F4C5C;
+  --teal: #1E6F7A;
+  --jade: #2F9E8F;
+  --mist: #EEF4F3;
+  --charcoal: #172126;
+  --muted-text: #526368;
+  --aurora-stripes: repeating-linear-gradient(100deg,#001b23 0%,#001b23 7%,transparent 10%,transparent 12%,#001b23 16%);
+  --aurora-colors: repeating-linear-gradient(100deg,#0F4C5C 10%,#1E6F7A 15%,#2F9E8F 20%,#699B9D 25%,#1E6F7A 30%);
+}
+
+body {
+  background: #FAFCFB;
+  color: var(--charcoal);
+  font-family: var(--font-inter), Arial, sans-serif;
+}
+::selection { background: var(--mist); color: var(--charcoal); }
+.auth-input { display: block; min-height: 48px; width: 100%; border: 1px solid #9CACAE; border-radius: 8px; background: white; padding: 11px 16px; font-size: 16px; outline: none; }
+.auth-input::placeholder { color: #59696D; }
+.auth-input:focus-visible { border-color: var(--deep-teal); box-shadow: 0 0 0 2px var(--deep-teal); }
+.auth-aurora { animation: aurora 60s linear infinite; }
+@keyframes mark-pulse { 50% { opacity: .72; } }
+.auth-mark { animation: mark-pulse 9s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .auth-aurora, .auth-mark { animation: none; } }
