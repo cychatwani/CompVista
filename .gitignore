@@ -1,3 +1,9 @@
 # Local operating-system files
 .DS_Store
 Thumbs.db
+.neon
+node_modules/
+.env
+.env.local
+backend/dist/
+backend/src/generated/

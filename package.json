@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix backend run build",
+    "dev:api": "npm --prefix backend run dev",
+    "test:api": "npm --prefix backend test",
+    "db:check": "npm --prefix backend run db:check"
+  },
+  "dependencies": {
+    "@neon/config": "^1.14.5",
+    "@neon/env": "^2.1.8"
+  }
+}
