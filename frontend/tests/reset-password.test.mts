@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { JSDOM } from "jsdom";
+import { createElement } from "react";
+const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/login/reset-password" });
+Object.assign(globalThis, { window: dom.window, self: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle, requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(callback, 0), IS_REACT_ACT_ENVIRONMENT: true });
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+const { render, screen, cleanup } = await import("@testing-library/react");
+const { default: userEvent } = await import("@testing-library/user-event");
+const { default: ResetPasswordPage } = await import("../src/app/login/reset-password/page");
+test("requirements react to typing and matching confirmation enables submit", async () => {
+  const user = userEvent.setup();
+  render(createElement(ResetPasswordPage));
+  const button = screen.getByRole("button", { name: "Change password" }) as HTMLButtonElement;
+  assert.equal(button.disabled, true);
+  await user.type(screen.getByLabelText("Current temporary password"), "temporary");
+  await user.type(screen.getByLabelText("New password"), "StrongPass123!");
+  assert.match(screen.getByText(/At least 10 characters/).textContent ?? "", /\u2713/);
+  assert.equal(button.disabled, true);
+  await user.type(screen.getByLabelText("Confirm password"), "StrongPass123!");
+  assert.equal(button.disabled, false);
+  cleanup();
+});
