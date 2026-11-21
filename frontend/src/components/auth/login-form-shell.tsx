@@ -7,6 +7,7 @@ import { rememberLoginPassword, forgetLoginPassword } from "./login-password-mem
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AuthLayout } from "./auth-layout";
+import { AsyncSubmitButton } from "./async-submit-button";
 import { loginSchema, type LoginValues } from "./login-schema";
 
 export function LoginFormShell() {
@@ -48,7 +49,7 @@ export function LoginFormShell() {
         <p className="mt-2 text-right text-sm font-medium text-[var(--teal)]"><Link href="/login/reset-password">Forgot password?</Link></p>
       </div>
       {signInError && <p className="text-sm font-medium text-red-600" role="alert">{signInError}</p>}
-      <button className="flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[var(--deep-teal)] px-4 font-semibold text-white transition-colors hover:bg-[var(--teal)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--deep-teal)]" type="submit" disabled={!isValid || isSubmitting}>{isSubmitting ? <><svg className="size-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-30"/><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg>Signing in?</> : <>Continue securely <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></>}</button>
+      <AsyncSubmitButton pending={isSubmitting} pendingLabel="Signing in?" disabled={!isValid}>Continue securely <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></AsyncSubmitButton>
     </form>
     <footer className="mt-10 border-t border-[#DCE5E3] pt-5"><p className="flex items-center gap-2 text-xs leading-5 text-[var(--muted-text)]"><svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Protected with multi-factor authentication</p></footer>
   </AuthLayout>;

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { AuthLayout } from "@/components/auth/auth-layout";
+import { AsyncSubmitButton } from "@/components/auth/async-submit-button";
 import { loginPassword, forgetLoginPassword } from "@/components/auth/login-password-memory";
 const rules = [
   ["At least 10 characters", (value: string) => value.length >= 10],
@@ -41,6 +42,6 @@ export default function ResetPasswordPage() {
         <ul className="mt-3 space-y-1 text-sm" aria-label="Password requirements">{rules.map(([label, passes]) => <li key={label} className={passes(newPassword) ? "text-[var(--teal)]" : "text-[var(--muted-text)]"}><span aria-hidden="true">{passes(newPassword) ? "\u2713" : "\u25cb"}</span> {label}</li>)}</ul></div>
       <div>{passwordField("confirm-password", "Confirm password", confirmPassword, setConfirmPassword, "new-password")}{confirmPassword && newPassword !== confirmPassword && <p className="mt-2 text-sm text-red-600">Passwords do not match</p>}</div>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      <button className="flex h-12 w-full items-center justify-center rounded-[10px] bg-[var(--deep-teal)] px-4 font-semibold text-white disabled:opacity-50" type="submit" disabled={!valid || busy}>{busy ? "Changing password?" : "Change password"}</button>
+      <AsyncSubmitButton pending={busy} pendingLabel="Changing password?" disabled={!valid}>Change password</AsyncSubmitButton>
     </form></AuthLayout>;
 }
