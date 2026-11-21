@@ -44,9 +44,8 @@ test("button follows reactive validity and corrected errors clear", async () => 
   assert.equal(screen.queryByText("Work email is required"), null);
 
   await user.type(email, "invalid");
-  await user.tab();
+  await waitFor(() => assert.ok(screen.getByText("Enter a valid email address")));
   assert.equal(email.getAttribute("aria-invalid"), "true");
-  assert.ok(screen.getByText("Enter a valid email address"));
   await user.type(password, "secret");
   assert.equal((submit as HTMLButtonElement).disabled, true);
 
@@ -58,6 +57,23 @@ test("button follows reactive validity and corrected errors clear", async () => 
   assert.equal(screen.queryByText("Enter a valid email address"), null);
   await user.keyboard("{Enter}");
   assert.equal(window.location.pathname, "/login");
+  cleanup();
+});
+
+test("required-field messages appear while editing and clear when corrected", async () => {
+  const user = userEvent.setup();
+  render(createElement(LoginFormShell));
+  const email = screen.getByRole("textbox", { name: "Work email" }) as HTMLInputElement;
+  const password = screen.getByLabelText("Password") as HTMLInputElement;
+  await user.type(email, "x");
+  await user.clear(email);
+  await waitFor(() => assert.ok(screen.getByText("Work email is required")));
+  await user.type(email, "person@example.com");
+  await waitFor(() => assert.equal(screen.queryByText("Work email is required"), null));
+  await user.type(password, " ");
+  await waitFor(() => assert.ok(screen.getByText("Password is required")));
+  await user.type(password, "valid");
+  await waitFor(() => assert.equal(screen.queryByText("Password is required"), null));
   cleanup();
 });
 

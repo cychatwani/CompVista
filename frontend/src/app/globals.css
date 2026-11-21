@@ -23,7 +23,7 @@
 }
 
 body {
-  background: #FAFCFB;
+  background: #EEF4F3;
   color: var(--charcoal);
   font-family: var(--font-inter), Arial, sans-serif;
 }
@@ -32,7 +32,7 @@ body {
 .auth-input::placeholder { color: #59696D; }
 .auth-input:focus-visible { border-color: var(--deep-teal); box-shadow: 0 0 0 2px var(--deep-teal); }
 .auth-aurora { animation: aurora 60s linear infinite; }
-.auth-aurora-subtle { opacity: .28; animation: aurora 120s linear infinite; }
+.auth-aurora-subtle { opacity: .16; animation: aurora 120s linear infinite; }
 @keyframes mark-pulse { 50% { opacity: .72; } }
 .auth-mark { animation: mark-pulse 9s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .auth-aurora, .auth-aurora-subtle, .auth-mark { animation: none; } }
