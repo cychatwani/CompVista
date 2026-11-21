@@ -8,16 +8,23 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.
 const { render, screen, cleanup } = await import("@testing-library/react");
 const { default: userEvent } = await import("@testing-library/user-event");
 const { default: ResetPasswordPage } = await import("../src/app/login/reset-password/page");
+const { rememberLoginPassword, forgetLoginPassword } = await import("../src/components/auth/login-password-memory");
 test("requirements react to typing and matching confirmation enables submit", async () => {
   const user = userEvent.setup();
+  rememberLoginPassword("temporary");
   render(createElement(ResetPasswordPage));
   const button = screen.getByRole("button", { name: "Change password" }) as HTMLButtonElement;
   assert.equal(button.disabled, true);
-  await user.type(screen.getByLabelText("Current temporary password"), "temporary");
+  assert.equal(screen.queryByLabelText("Current password"), null);
   await user.type(screen.getByLabelText("New password"), "StrongPass123!");
+  await user.click(screen.getByRole("button", { name: "Show new password" }));
+  assert.equal((screen.getByLabelText("New password") as HTMLInputElement).type, "text");
   assert.match(screen.getByText(/At least 10 characters/).textContent ?? "", /\u2713/);
   assert.equal(button.disabled, true);
   await user.type(screen.getByLabelText("Confirm password"), "StrongPass123!");
+  await user.click(screen.getByRole("button", { name: "Show confirm password" }));
+  assert.equal((screen.getByLabelText("Confirm password") as HTMLInputElement).type, "text");
   assert.equal(button.disabled, false);
   cleanup();
+  forgetLoginPassword();
 });

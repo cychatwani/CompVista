@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/login" });
 Object.assign(globalThis, {
@@ -19,6 +20,8 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.
 const { cleanup, render, screen, waitFor } = await import("@testing-library/react");
 const { default: userEvent } = await import("@testing-library/user-event");
 const { LoginFormShell } = await import("../src/components/auth/login-form-shell");
+const router = { push() {}, replace() {}, refresh() {}, prefetch() {}, back() {}, forward() {} };
+const login = () => createElement(AppRouterContext.Provider, { value: router as never }, createElement(LoginFormShell));
 const { loginSchema } = await import("../src/components/auth/login-schema");
 
 test("schema requires credentials, normalizes email, and preserves password", () => {
@@ -37,7 +40,7 @@ test("schema requires credentials, normalizes email, and preserves password", ()
 
 test("button follows reactive validity and corrected errors clear", async () => {
   const user = userEvent.setup();
-  render(createElement(LoginFormShell));
+  render(login());
   const email = screen.getByRole("textbox", { name: "Work email" }) as HTMLInputElement;
   const password = screen.getByLabelText("Password") as HTMLInputElement;
   const submit = screen.getByRole("button", { name: /Continue securely/ });
@@ -63,7 +66,7 @@ test("button follows reactive validity and corrected errors clear", async () => 
 
 test("required-field messages appear while editing and clear when corrected", async () => {
   const user = userEvent.setup();
-  render(createElement(LoginFormShell));
+  render(login());
   const email = screen.getByRole("textbox", { name: "Work email" }) as HTMLInputElement;
   const password = screen.getByLabelText("Password") as HTMLInputElement;
   await user.type(email, "x");
@@ -80,7 +83,7 @@ test("required-field messages appear while editing and clear when corrected", as
 
 test("password visibility toggles without losing value or input focus", async () => {
   const user = userEvent.setup();
-  render(createElement(LoginFormShell));
+  render(login());
   const password = screen.getByLabelText("Password") as HTMLInputElement;
   await user.type(password, " secret ");
   assert.equal(password.type, "password");

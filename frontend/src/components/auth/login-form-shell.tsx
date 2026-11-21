@@ -2,12 +2,15 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { rememberLoginPassword, forgetLoginPassword } from "./login-password-memory";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AuthLayout } from "./auth-layout";
 import { loginSchema, type LoginValues } from "./login-schema";
 
 export function LoginFormShell() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [signInError, setSignInError] = useState("");
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
@@ -23,12 +26,14 @@ export function LoginFormShell() {
 
   const onValidSubmit = async (values: LoginValues) => {
     setSignInError("");
+    forgetLoginPassword();
     try {
       const response = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
       const result = await response.json();
       if (!response.ok) { setSignInError(result.error ?? "Sign in failed"); return; }
       const destinations: Record<string, string> = { RESET_PASSWORD: "/login/reset-password", VERIFY_EMAIL: "/login/verify-email", SETUP_TOTP: "/login/setup-totp", VERIFY_TOTP: "/login/verify", AUTHENTICATED: "/app" };
-      window.location.assign(destinations[result.nextStep] ?? "/login");
+      if (result.nextStep === "RESET_PASSWORD") rememberLoginPassword(values.password);
+      router.push(destinations[result.nextStep] ?? "/login");
     } catch { setSignInError("Sign in is temporarily unavailable"); }
   };
 
