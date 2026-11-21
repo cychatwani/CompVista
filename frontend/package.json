@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --import tsx --test tests/login-form.test.mts"
+    "test": "node --import tsx --test tests/login-form.test.mts",
+    "test:browser": "node tests/login-browser.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.7",
@@ -30,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "jsdom": "^31.0.1",
+    "playwright-core": "^1.65.1",
     "tailwindcss": "4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^5"
