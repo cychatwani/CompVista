@@ -4,6 +4,7 @@ import { organization, twoFactor } from 'better-auth/plugins';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from './generated/prisma/client.js';
 import { config } from 'dotenv';
+import { organizationAccess, organizationRoles } from './organization-roles.js';
 
 config({ path: process.env.COMPVISTA_ENV_FILE ?? '.env' });
 if (!process.env.COMPVISTA_ENV_FILE) config({ path: '../.env.local' });
@@ -18,9 +19,24 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: [process.env.FRONTEND_URL ?? 'http://localhost:3000'],
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
-  emailAndPassword: { enabled: true, disableSignUp: process.env.COMPVISTA_BOOTSTRAP !== '1' },
+  user: { deleteUser: { enabled: process.env.COMPVISTA_SEED === '1' } },
+  emailAndPassword: { enabled: true, disableSignUp: process.env.COMPVISTA_SEED !== '1' },
+  disabledPaths: process.env.COMPVISTA_SEED === '1' ? [] : [
+    '/sign-up/email',
+    '/organization/create',
+    '/organization/invite-member',
+    '/organization/accept-invitation',
+    '/organization/reject-invitation',
+    '/organization/cancel-invitation',
+  ],
   plugins: [
-    organization({ allowUserToCreateOrganization: process.env.COMPVISTA_BOOTSTRAP === '1', organizationLimit: 1 }),
+    organization({
+      ac: organizationAccess,
+      roles: organizationRoles,
+      allowUserToCreateOrganization: process.env.COMPVISTA_SEED === '1',
+      organizationLimit: 1,
+      creatorRole: 'admin',
+    }),
     twoFactor(),
   ],
 });

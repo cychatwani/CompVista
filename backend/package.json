@@ -4,15 +4,16 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "prisma generate && nest build",
+    "typecheck": "tsc -p tsconfig.check.json",
     "start": "node dist/main.js",
     "lint": "eslint src test scripts --ext .ts",
     "test": "node --import tsx --test test/hello.test.ts",
-    "test:integration": "node --import tsx --test test/identity.integration.test.ts",
+    "test:integration": "node --import tsx --test test/seed.integration.test.ts",
     "db:check": "tsx scripts/check-db.ts",
     "db:migrate": "node scripts/flyway.mjs migrate",
     "db:validate": "node scripts/flyway.mjs validate",
     "db:info": "node scripts/flyway.mjs info",
-    "bootstrap:dev": "tsx scripts/bootstrap-dev.ts"
+    "seed:dev": "tsx scripts/seed-dev.ts"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "1.7.27",

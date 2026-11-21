@@ -1,0 +1,154 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { config } from 'dotenv';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '../src/generated/prisma/client.js';
+
+config({ path: process.env.COMPVISTA_ENV_FILE ?? '.env' });
+if (process.env.NODE_ENV === 'production') throw new Error('Refusing development seed in production mode');
+if (process.env.COMPVISTA_DEV_SEED !== 'YES') throw new Error('Set COMPVISTA_DEV_SEED=YES to run the development seed');
+if (!process.env.DATABASE_URL || !process.env.NEON_BRANCH) throw new Error('Neon DATABASE_URL and NEON_BRANCH are required');
+process.env.COMPVISTA_SEED = '1';
+
+type SeedRole = 'admin' | 'hr' | 'employee';
+const people: { email: string; name: string; role: SeedRole }[] = [
+  { email: 'cyc4597@gmail.com', name: 'CompVista Admin', role: 'admin' },
+  ...[1, 2, 3].map((n) => ({ email: `compvista.demo.hr${n}@yopmail.com`, name: `Demo HR ${n}`, role: 'hr' as const })),
+  ...[1, 2, 3, 4, 5].map((n) => ({ email: `compvista.demo.employee${n}@yopmail.com`, name: `Demo Employee ${n}`, role: 'employee' as const })),
+];
+const roleDefaults = {
+  admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
+  hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
+  employee: { canViewAllComp: false, canViewOwnComp: true, canProposeOthersComp: false, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
+} satisfies Record<SeedRole, Record<string, boolean>>;
+const credentialPath = resolve('.local/dev-seed-credentials.json');
+
+function restrictFile(path: string, created: boolean): void {
+  if (process.platform !== 'win32') return;
+  const script = created
+    ? '$p=$env:COMPVISTA_CREDENTIAL_PATH; $a=Get-Acl -LiteralPath $p; $a.SetAccessRuleProtection($true,$false); foreach($r in @($a.Access)){$a.RemoveAccessRule($r)|Out-Null}; $id=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($id,"FullControl","Allow"); $a.AddAccessRule($rule); Set-Acl -LiteralPath $p -AclObject $a'
+    : '$a=Get-Acl -LiteralPath $env:COMPVISTA_CREDENTIAL_PATH; $id=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $rules=@($a.Access); if(-not $a.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -ne $id -or $rules[0].AccessControlType -ne "Allow"){exit 1}';
+  const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    env: { ...process.env, COMPVISTA_CREDENTIAL_PATH: path }, encoding: 'utf8',
+  });
+  if (result.status !== 0) throw new Error('Local credential file ACL is not restricted to the current user; no database changes were made');
+}
+
+function credentials(): Record<string, string> {
+  mkdirSync(resolve('.local'), { recursive: true, mode: 0o700 });
+  let values: Record<string, string>;
+  let created = false;
+  try {
+    values = JSON.parse(readFileSync(credentialPath, 'utf8')) as Record<string, string>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    values = Object.fromEntries(people.map((person) => [person.email, randomBytes(24).toString('base64url')]));
+    writeFileSync(credentialPath, JSON.stringify(values, null, 2), { flag: 'wx', mode: 0o600 });
+    created = true;
+  }
+  restrictFile(credentialPath, created);
+  for (const person of people) {
+    if (!values[person.email] || values[person.email].length < 24) throw new Error(`Missing stored credential for ${person.email}`);
+  }
+  return values;
+}
+
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
+const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, legacyOwnersRemoved: 0 };
+
+async function main(): Promise<void> {
+  const passwords = credentials();
+  const { auth } = await import('../src/auth.js');
+  try {
+    const orgs = await prisma.organization.findMany({ where: { slug: 'compvista-demo' } });
+    if (orgs.length > 1) throw new Error('Duplicate demo organizations found');
+    let org = orgs[0];
+    if (org && org.name !== 'CompVista Demo') throw new Error('Demo organization slug belongs to a different name');
+    const currentMembers = org ? await prisma.member.findMany({ where: { organizationId: org.id }, include: { user: true } }) : [];
+    const intended = new Set(people.map((person) => person.email));
+    const legacy = currentMembers.filter((member) => member.user.email === 'owner@compvista.local');
+    if (legacy.length > 1 || currentMembers.some((member) => !intended.has(member.user.email) && member.user.email !== 'owner@compvista.local')) {
+      throw new Error('Demo organization has an unrelated member; refusing to change it');
+    }
+    if (legacy.length && (legacy[0].role !== 'owner' || !process.env.DEV_OWNER_PASSWORD)) {
+      throw new Error('Legacy owner cannot be safely reconciled; check DEV_OWNER_PASSWORD and owner role');
+    }
+    for (const person of people) {
+      const existing = await prisma.user.findUnique({ where: { email: person.email }, include: { member: true } });
+      if (existing?.member && (existing.member.role !== person.role || (org && existing.member.organizationId !== org.id))) {
+        throw new Error(`Existing membership contradicts desired role or organization for ${person.email}`);
+      }
+      if (existing && !(await prisma.account.findFirst({ where: { userId: existing.id, providerId: 'credential' } }))) {
+        throw new Error(`Existing user lacks a Better Auth credential account: ${person.email}`);
+      }
+    }
+
+    for (const person of people) {
+      if (await prisma.user.findUnique({ where: { email: person.email } })) { counts.usersSkipped++; continue; }
+      await auth.api.signUpEmail({ body: { email: person.email, name: person.name, password: passwords[person.email] } });
+      counts.usersCreated++;
+    }
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: people[0].email } });
+    if (!org) {
+      await auth.api.createOrganization({ body: { name: 'CompVista Demo', slug: 'compvista-demo', userId: admin.id } });
+      org = await prisma.organization.findUniqueOrThrow({ where: { slug: 'compvista-demo' } });
+      counts.organizationsCreated++;
+    } else counts.organizationsSkipped++;
+
+    for (const key of ['admin', 'hr', 'employee'] as const) {
+      let role = await prisma.organization_role.findUnique({ where: { organizationId_key: { organizationId: org.id, key } }, include: { organization_role_permissions: true } });
+      if (!role) {
+        role = await prisma.organization_role.create({ data: { id: randomUUID(), organizationId: org.id, key, displayName: key === 'hr' ? 'HR' : key[0].toUpperCase() + key.slice(1), organization_role_permissions: { create: roleDefaults[key] } }, include: { organization_role_permissions: true } });
+        counts.rolesCreated++;
+      } else {
+        if (!role.organization_role_permissions) throw new Error(`Missing permissions row for ${key} role`);
+        counts.rolesSkipped++;
+      }
+    }
+
+    for (const person of people) {
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: person.email } });
+      let member = await prisma.member.findUnique({ where: { userId: user.id } });
+      if (!member) {
+        await auth.api.addMember({ body: { userId: user.id, role: person.role, organizationId: org.id } });
+        member = await prisma.member.findUniqueOrThrow({ where: { userId: user.id } });
+        counts.membershipsCreated++;
+      } else counts.membershipsSkipped++;
+      if (member.organizationId !== org.id || member.role !== person.role) throw new Error(`Membership mismatch for ${person.email}`);
+      const role = await prisma.organization_role.findUniqueOrThrow({ where: { organizationId_key: { organizationId: org.id, key: person.role } } });
+      if (!member.roleId) await prisma.member.update({ where: { id: member.id }, data: { roleId: role.id } });
+      if (member.roleId && member.roleId !== role.id) throw new Error(`Role reference mismatch for ${person.email}`);
+      const profile = await prisma.employee.findUnique({ where: { userId: user.id } });
+      if (!profile) {
+        await prisma.employee.create({ data: { id: randomUUID(), userId: user.id, organizationId: org.id, displayName: person.name } });
+        counts.profilesCreated++;
+      } else {
+        if (profile.organizationId !== org.id) throw new Error(`Employee profile organization mismatch for ${person.email}`);
+        counts.profilesSkipped++;
+      }
+    }
+
+    if (legacy.length) {
+      const legacyResponse = await auth.api.signInEmail({ body: { email: 'owner@compvista.local', password: process.env.DEV_OWNER_PASSWORD! }, asResponse: true });
+      const cookie = legacyResponse.headers.get('set-cookie')?.split(';')[0];
+      if (!cookie) throw new Error('Could not authenticate legacy owner for cleanup');
+      await auth.api.deleteUser({ body: { password: process.env.DEV_OWNER_PASSWORD! }, headers: new Headers({ cookie }) });
+      counts.legacyOwnersRemoved++;
+    }
+
+    const seededMembers = await prisma.member.findMany({ where: { organizationId: org.id }, include: { user: true } });
+    if (seededMembers.length !== 9 || seededMembers.some((member) => !member.roleId || !intended.has(member.user.email))) throw new Error('Final membership verification failed');
+    if (await prisma.organization.count({ where: { slug: 'compvista-demo' } }) !== 1) throw new Error('Demo organization count mismatch');
+    console.log(JSON.stringify(counts));
+    console.log('Credentials stored in backend/.local/dev-seed-credentials.json; values hidden');
+  } catch (error) {
+    console.error('Seed stopped after partial progress; rerun after resolving the error. Completed counts:', JSON.stringify(counts));
+    throw error;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+void main();

@@ -22,9 +22,7 @@ const env = {
 const command = process.env.FLYWAY_COMMAND ?? 'flyway';
 const action = process.argv[2];
 if (!['migrate', 'validate', 'info'].includes(action)) throw new Error('Unsupported Flyway action');
-const result = process.platform === 'win32'
-  ? spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${command}" ${action}`], { env, stdio: 'inherit' })
-  : spawnSync(command, [action], { env, stdio: 'inherit' });
+const result = spawnSync(command, [action], { env, stdio: 'inherit', shell: process.platform === 'win32' });
 if (result.error) {
   console.error('Flyway CLI is unavailable. Install Flyway or set FLYWAY_COMMAND to its executable path.');
   process.exitCode = 1;

@@ -8,7 +8,7 @@
     "db:migrate": "npm --prefix backend run db:migrate",
     "db:validate": "npm --prefix backend run db:validate",
     "db:info": "npm --prefix backend run db:info",
-    "bootstrap:dev": "npm --prefix backend run bootstrap:dev"
+    "seed:dev": "npm --prefix backend run seed:dev"
   },
   "dependencies": {
     "@neon/config": "^1.14.5",

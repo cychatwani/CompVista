@@ -1,39 +1,39 @@
-# CompVista API identity foundation
+# CompVista development seed
 
-NestJS serves `GET /hello` and mounts Better Auth at `/api/auth/*`. Better Auth 1.7.27 uses Prisma 7.10.1 with the PostgreSQL driver adapter, email/password, organization, and TOTP plugins. Public email signup and user-created organizations are disabled during normal server operation. The frontend origin is explicitly trusted and allowed for credentialed CORS. NestJS can verify sessions in later milestones with `auth.api.getSession({ headers: fromNodeHeaders(request.headers) })` against this same Better Auth instance; no separate JWT is issued.
+The NestJS API serves `GET /hello` and Better Auth at `/api/auth/*`. Public signup, organization creation, and invitation routes are disabled during normal server operation. Better Auth 1.7.27 provides email/password and TOTP authentication. Only the explicit development seed process can create test identities and the demo organization. No registration or onboarding UI exists.
 
-## Local environment
+## Schema and permissions
 
-Copy `.env.example` to `.env`, supply Neon's pooled `DATABASE_URL` and direct `DIRECT_URL`, and generate a random `BETTER_AUTH_SECRET`. The `.env` file is Git ignored. Set `FRONTEND_URL` and `BETTER_AUTH_URL` to the actual local origins. A local development owner can be initialized using `DEV_OWNER_EMAIL`, `DEV_OWNER_NAME`, and a strong `DEV_OWNER_PASSWORD` in `.env`. Do not put these values in source control. No email delivery is configured.
+Flyway alone owns schema changes. V1 holds Better Auth identity tables. V2 adds minimal `employee` profiles, uniquely keyed by Better Auth `user.id` and linked to an organization. V3 adds organization roles. V4 replaces text permission entries with one `organization_role_permissions` row per role ID containing fixed boolean columns. Each organization has role keys `admin`, `hr`, and `employee`, with an editable `displayName`. `requiresApproval` is a boolean in the permissions row.
 
-## Flyway owns migrations
+Better Auth continues to own `member.role`. The V3 trigger synchronizes `member.roleId` with the organization's role key whenever Better Auth adds or changes a membership. The field remains nullable for a pre-seed legacy owner; the seed verifies that every final member has a role reference. The seeded defaults are:
 
-Install [Flyway CLI](https://documentation.red-gate.com/flyway/reference/usage/command-line) and put `flyway` on `PATH`, or set `FLYWAY_COMMAND` to its executable path. From `backend/`, run:
+| Role | View all | View own | Propose others | Propose self | Approve | Approve self | Approval required |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Admin | Yes | Yes | Yes | Yes | Yes | Yes | No |
+| HR | Yes | Yes | Yes | No | No | No | Yes |
+| Employee | No | Yes | No | No | No | No | Yes |
+
+These rows define defaults for later authorization code. No compensation or change-request endpoints exist yet.
+
+## Run
+
+Install [Flyway CLI](https://documentation.red-gate.com/flyway/reference/usage/command-line) and put `flyway` on `PATH`, or set `FLYWAY_COMMAND` to its executable path. Keep pooled `DATABASE_URL`, direct `DIRECT_URL`, `BETTER_AUTH_SECRET`, and local origins in the ignored `backend/.env`. From `backend/`:
 
 ```powershell
 npm run db:migrate
 npm run db:validate
-npm run db:info
-npx prisma db pull
-npx prisma generate
-npm run db:check
-```
-
-The Flyway wrapper reads `DIRECT_URL` and passes credentials through environment variables. V1 lives in `db/migration/`. Never run Prisma migration, `db push`, or Better Auth migration commands. When introspecting again, remove the `flyway_schema_history` model from `prisma/schema.prisma`; Flyway alone owns that table. The production branch has V1 applied and validated.
-
-The SQL was translated from `npx auth@1.7.27 generate --adapter prisma --config src/auth.ts`. The generated schema was reviewed before V1 was written. Prisma was introspected after Flyway applied V1 on an isolated Neon branch. The physical schema has eight Better Auth tables and Flyway's history table; it has no business-domain tables.
-
-## Development owner
-
-```powershell
-npm run bootstrap:dev
+$env:COMPVISTA_DEV_SEED = 'YES'
+npm run seed:dev
 npm run dev
 ```
 
-The bootstrap script uses Better Auth's signup and organization APIs, verifies the owner role, and is idempotent. It requires the three `DEV_OWNER_*` variables and refuses to run with `NODE_ENV=production`. For the linked development database, `CompVista Demo` / `compvista-demo` and one owner were created. The generated owner's password is stored only in the ignored local `.env`.
+The seed refuses `NODE_ENV=production` and requires the explicit opt-in. It never runs on server startup. It seeds `CompVista Demo`, one `cyc4597@gmail.com` tenant admin, three deterministic Yopmail HR users, five deterministic Yopmail employee users, and one employee profile for each of the nine identities. The real admin address remains unverified; no email is sent. Better Auth creates and hashes the passwords. The local credential file is `backend/.local/dev-seed-credentials.json`, ignored by Git and restricted to the current Windows user. Reruns leave existing passwords, role names, and permissions intact.
 
-`member.userId` is unique, so a user can belong to at most one organization. A membership is created when an organization is created or an invitation is accepted; the database cannot require every user to have a membership because Better Auth creates the user before organization assignment. Future activation logic must verify membership before granting an HR role. A second-organization acceptance will fail on the unique index and should be handled as a user-facing conflict in that later workflow.
+The seed reconciles only the previous milestone's `owner@compvista.local` demo identity. It verifies that account and its role, creates all nine replacements, then deletes the legacy identity through Better Auth using its stored local password. Unrelated members cause an error. Better Auth operations and Prisma domain writes cannot share one transaction; a failed run reports counts and can be rerun to finish.
 
-## Validation
+## Verify
 
-`npm run build`, `npm run lint`, and `npm test` verify compilation, lint, and `/hello`. `npm run test:integration` requires `COMPVISTA_ENV_FILE=.env.test` pointing to the isolated `milestone2-validation` Neon branch; it exercises Better Auth signup/sign-in persistence, the owner role, invitation acceptance, role changes, same-organization membership, the single-membership constraint, and TOTP setup persistence. Do not point it at the production branch: it creates disposable test data.
+`npm run build`, `npm run lint`, and `npm test` check the backend and `/hello`. For the isolated `milestone3-boolean-validation` Neon branch only, set `COMPVISTA_ENV_FILE=.env.boolean.test` and run `npm run test:integration`. That test verifies role and employee counts, single membership, password login, closed signup, and blocked organization creation. Do not point it at the linked production branch.
+
+Flyway migration and validation are explicit. Never run Prisma migration commands, `prisma db push`, or Better Auth migration commands. Prisma was introspected after Flyway applied V4, and its client was regenerated; Flyway's history table is intentionally omitted from the application Prisma schema.
