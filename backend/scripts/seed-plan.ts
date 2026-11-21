@@ -3,13 +3,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export type SeedRole = 'admin' | 'hr' | 'employee';
+export const defaultPermissions = {
+  admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
+  hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
+  employee: { canViewAllComp: false, canViewOwnComp: true, canProposeOthersComp: false, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
+} as const;
+export type PermissionFlags = { [K in keyof typeof defaultPermissions.admin]: boolean };
 export type PlannedPerson = { email: string; name: string; role: SeedRole; generated: boolean };
-export type SeedPlan = { organization: { name: string; slug: string }; people: PlannedPerson[] };
+export type SeedPlan = { organization: { name: string; slug: string }; people: PlannedPerson[]; roles: Partial<Record<SeedRole, { displayName?: string; permissions?: Partial<PermissionFlags> }>> };
 
 type RawPlan = {
   organization?: { name?: unknown; slug?: unknown };
   users?: { email?: unknown; name?: unknown; role?: unknown }[];
   generatedEmployees?: { count?: unknown; emailPrefix?: unknown; namesFile?: unknown; names?: { first_names?: unknown; last_names?: unknown } };
+  roles?: Record<string, { displayName?: unknown; permissions?: Record<string, unknown> }>;
 };
 
 function requiredText(value: unknown, field: string): string {
@@ -63,7 +70,24 @@ export function parseSeedPlan(value: unknown): SeedPlan {
     }
   }
   if (new Set(people.map((person) => person.email)).size !== people.length) throw new Error('Input creates duplicate email addresses');
-  return { organization: { name, slug }, people };
+  const roles: SeedPlan['roles'] = {};
+  for (const [key, value] of Object.entries(raw.roles ?? {})) {
+    if (key !== 'admin' && key !== 'hr' && key !== 'employee') throw new Error(`Unknown role: ${key}`);
+    if (!value || typeof value !== 'object') throw new Error(`roles.${key} must be an object`);
+    const role: { displayName?: string; permissions?: Partial<PermissionFlags> } = {};
+    if (value.displayName !== undefined) role.displayName = requiredText(value.displayName, `roles.${key}.displayName`);
+    if (value.permissions !== undefined) {
+      if (!value.permissions || typeof value.permissions !== 'object' || Array.isArray(value.permissions)) throw new Error(`roles.${key}.permissions must be an object`);
+      const flags: Partial<PermissionFlags> = {};
+      for (const [flag, enabled] of Object.entries(value.permissions)) {
+        if (!(flag in defaultPermissions.admin) || typeof enabled !== 'boolean') throw new Error(`Invalid boolean permission roles.${key}.permissions.${flag}`);
+        (flags as Record<string, boolean>)[flag] = enabled;
+      }
+      role.permissions = flags;
+    }
+    roles[key] = role;
+  }
+  return { organization: { name, slug }, people, roles };
 }
 
 export function loadSeedPlan(file: string): SeedPlan {

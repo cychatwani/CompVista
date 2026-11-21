@@ -3,6 +3,12 @@
     "name": "CompVista Demo",
     "slug": "compvista-demo"
   },
+  "roles": {
+    "hr": {
+      "displayName": "HR",
+      "permissions": { "canViewAllComp": true }
+    }
+  },
   "users": [
     { "email": "cyc4597@gmail.com", "name": "CompVista Admin", "role": "admin" },
     { "email": "compvista.demo.hr1@yopmail.com", "name": "Demo HR 1", "role": "hr" },

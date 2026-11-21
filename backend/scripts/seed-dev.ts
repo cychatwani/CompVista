@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.js';
-import { loadSeedPlan, type PlannedPerson, type SeedRole } from './seed-plan.js';
+import { defaultPermissions, loadSeedPlan, type PlannedPerson } from './seed-plan.js';
 
 config({ path: process.env.COMPVISTA_ENV_FILE ?? '.env' });
 if (process.env.NODE_ENV === 'production') throw new Error('Refusing development seed in production mode');
@@ -17,11 +17,6 @@ const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== '--input')) throw new Error('Usage: npm run seed:dev -- --input seed/plan.json');
 const plan = loadSeedPlan(args[1] ?? 'seed/demo.json');
 const people = plan.people;
-const roleDefaults = {
-  admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
-  hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
-  employee: { canViewAllComp: false, canViewOwnComp: true, canProposeOthersComp: false, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
-} satisfies Record<SeedRole, Record<string, boolean>>;
 const credentialPath = resolve('.local/dev-seed-credentials.json');
 
 function restrictFile(path: string, created: boolean): void {
@@ -63,7 +58,7 @@ function credentials(targets: PlannedPerson[]): Record<string, string> {
 }
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
-const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0 };
+const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, permissionsUpdated: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0 };
 
 async function main(): Promise<void> {
   const passwords = credentials(people);
@@ -99,12 +94,21 @@ async function main(): Promise<void> {
     } else counts.organizationsSkipped++;
 
     for (const key of ['admin', 'hr', 'employee'] as const) {
+      const requested = plan.roles[key];
+      const flags = { ...defaultPermissions[key], ...requested?.permissions };
       let role = await prisma.organization_role.findUnique({ where: { organizationId_key: { organizationId: org.id, key } }, include: { organization_role_permissions: true } });
       if (!role) {
-        role = await prisma.organization_role.create({ data: { id: randomUUID(), organizationId: org.id, key, displayName: key === 'hr' ? 'HR' : key[0].toUpperCase() + key.slice(1), organization_role_permissions: { create: roleDefaults[key] } }, include: { organization_role_permissions: true } });
+        role = await prisma.organization_role.create({ data: { id: randomUUID(), organizationId: org.id, key, displayName: requested?.displayName ?? (key === 'hr' ? 'HR' : key[0].toUpperCase() + key.slice(1)), organization_role_permissions: { create: flags } }, include: { organization_role_permissions: true } });
         counts.rolesCreated++;
       } else {
-        if (!role.organization_role_permissions) throw new Error(`Missing permissions row for ${key} role`);
+        if (!role.organization_role_permissions) {
+          await prisma.organization_role_permissions.create({ data: { roleId: role.id, ...flags } });
+          counts.permissionsUpdated++;
+        } else if (requested?.permissions && Object.entries(flags).some(([flag, enabled]) => (role!.organization_role_permissions as unknown as Record<string, unknown>)[flag] !== enabled)) {
+          await prisma.organization_role_permissions.update({ where: { roleId: role.id }, data: flags });
+          counts.permissionsUpdated++;
+        }
+        if (requested?.displayName && requested.displayName !== role.displayName) await prisma.organization_role.update({ where: { id: role.id }, data: { displayName: requested.displayName } });
         counts.rolesSkipped++;
       }
     }

@@ -19,9 +19,11 @@ test('JSON object accepts explicit employees and generated count', () => {
       { email: 'priya@example.test', name: 'Priya Shah', role: 'employee' },
     ],
     generatedEmployees: { count: 2, names: { first_names: ['Aarav'], last_names: ['Patel'] } },
+    roles: { hr: { displayName: 'People Team', permissions: { canProposeOwnComp: true } } },
   });
   assert.equal(plan.organization.slug, 'example-india');
   assert.equal(plan.people.length, 4);
   assert.deepEqual(plan.people.slice(2).map((person) => person.name), ['Aarav Patel', 'Aarav Patel']);
   assert.deepEqual(plan.people.slice(2).map((person) => person.email), ['example-india.employee1@yopmail.com', 'example-india.employee2@yopmail.com']);
+  assert.deepEqual(plan.roles.hr, { displayName: 'People Team', permissions: { canProposeOwnComp: true } });
 });
