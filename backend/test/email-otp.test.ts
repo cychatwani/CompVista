@@ -52,6 +52,16 @@ test('issue is idempotent, resend enforces cooldown and supersedes the old code'
   assert.equal(state.row, null);
 });
 
+test('mount ensure never reissues after an expired or exhausted code', async () => {
+  const state = fixture();
+  await state.service.issue(state.user);
+  state.row!.sentAt = new Date(Date.now() - 61_000);
+  state.row!.expiresAt = new Date(Date.now() - 1);
+  state.row!.attempts = 5;
+  assert.equal((await state.service.issue(state.user)).sent, false);
+  assert.equal(state.sent.length, 1);
+});
+
 test('five wrong attempts, expiry, and mandatory reset block verification', async () => {
   const state = fixture();
   state.user.mustChangePassword = true;
@@ -74,7 +84,8 @@ test('mail failure keeps the cooldown and invalidates the unsent code', async ()
   const service = new EmailOtpService((state.service as unknown as { prisma: PrismaService }).prisma, failingMail, { get: () => 'test-secret' } as unknown as ConfigService);
   await assert.rejects(service.issue(state.user));
   assert.equal(state.row?.attempts, 5);
-  await assert.rejects(service.issue(state.user), (error: unknown) => error instanceof Error && error.message.includes('Wait before'));
+  assert.equal((await service.issue(state.user)).sent, false);
+  await assert.rejects(service.issue(state.user, true), (error: unknown) => error instanceof Error && error.message.includes('Wait before'));
 });
 
 test('a code sent to an old address cannot verify a changed address', async () => {

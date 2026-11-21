@@ -21,7 +21,7 @@ export class EmailOtpController {
     const user = await this.user(request);
     const code = await this.prisma.email_verification_otp.findUnique({ where: { userId: user.id } });
     const now = Date.now();
-    return { email: user.email, hasActiveCode: !!code && code.email === user.email && code.expiresAt.getTime() > now && code.attempts < 5,
+    return { email: user.email, hasIssuedCode: !!code, hasActiveCode: !!code && code.email === user.email && code.expiresAt.getTime() > now && code.attempts < 5,
       retryAfterSeconds: code ? Math.max(0, Math.ceil((code.sentAt.getTime() + 60_000 - now) / 1000)) : 0 };
   }
 

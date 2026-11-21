@@ -10,6 +10,7 @@ const destinations: Record<string, string> = { RESET_PASSWORD: "/login/reset-pas
 export default function VerifyEmailPage() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [codeAvailable, setCodeAvailable] = useState(true);
   const [cooldown, setCooldown] = useState(0);
   const [sending, setSending] = useState(true);
   const [verifying, setVerifying] = useState(false);
@@ -28,11 +29,17 @@ export default function VerifyEmailPage() {
       if (!response.ok) throw new Error(result.error ?? "Could not check verification status");
       setEmail(result.email);
       setCooldown(result.retryAfterSeconds);
-      if (result.hasActiveCode) return;
+      setCodeAvailable(result.hasActiveCode);
+      if (result.hasIssuedCode) return;
       const delivery = await fetch("/api/email-otp/send", { method: "POST" });
       const sent = await delivery.json();
       if (!active) return;
-      if (!delivery.ok) throw new Error(sent.error ?? "Could not send code");
+      if (!delivery.ok) {
+        const status = await fetch("/api/email-otp/status").then((value) => value.json());
+        if (active) { setCooldown(status.retryAfterSeconds ?? 0); setCodeAvailable(false); }
+        throw new Error(sent.error ?? "Could not send code");
+      }
+      setCodeAvailable(true);
       setCooldown(sent.retryAfterSeconds);
     }).catch((failure) => { if (active) setError(failure.message ?? "Could not send code"); })
       .finally(() => { if (active) setSending(false); });
@@ -65,13 +72,12 @@ export default function VerifyEmailPage() {
       const response = await fetch("/api/email-otp/resend", { method: "POST" });
       const result = await response.json();
       if (!response.ok) {
-        if (response.status === 429) {
-          const status = await fetch("/api/email-otp/status").then((value) => value.json());
-          setCooldown(status.retryAfterSeconds ?? 0);
-        }
+        const status = await fetch("/api/email-otp/status").then((value) => value.json());
+        setCooldown(status.retryAfterSeconds ?? 0);
+        setCodeAvailable(status.hasActiveCode ?? false);
         setError(result.error ?? "Could not resend code"); return;
       }
-      setCode(""); setCooldown(result.retryAfterSeconds);
+      setCode(""); setCodeAvailable(true); setCooldown(result.retryAfterSeconds);
     } catch { setError("Could not resend code"); }
     finally { setSending(false); }
   }
@@ -81,8 +87,9 @@ export default function VerifyEmailPage() {
     <form className="mt-8 space-y-5" onSubmit={verify}>
       <div><label className="mb-2 block text-sm font-medium" htmlFor="email-code">Verification code</label><OTPInput id="email-code" value={code} onChange={setCode} maxLength={6} pattern={REGEXP_ONLY_DIGITS} inputMode="numeric" autoComplete="one-time-code" pasteTransformer={(text) => text.replace(/\D/g, "")} containerClassName="w-full" render={({ slots }) => <div className="flex w-full gap-2 sm:gap-3" aria-hidden="true">{slots.map((slot, index) => <div key={index} className={`flex h-12 min-w-0 flex-1 items-center justify-center rounded-[11px] border bg-white text-xl font-semibold tabular-nums ${slot.isActive ? "border-[var(--deep-teal)] ring-2 ring-[var(--deep-teal)]/30" : "border-[#9CACAE]"}`}>{slot.char ?? (slot.hasFakeCaret ? <span className="h-5 w-px bg-[var(--deep-teal)]" /> : null)}</div>)}</div>} /></div>
       {error && <p role="alert" className="text-sm font-medium text-red-600">{error}</p>}
-      <AsyncSubmitButton pending={verifying} pendingLabel="Verifying…" disabled={code.length !== 6}>Verify &amp; continue</AsyncSubmitButton>
+      {!codeAvailable && !error && <p className="text-sm text-[var(--muted-text)]">Your code is unavailable. Request a new one below.</p>}
+      <AsyncSubmitButton pending={verifying} pendingLabel="Verifying…" disabled={!codeAvailable || code.length !== 6}>Verify &amp; continue</AsyncSubmitButton>
     </form>
-    <div className="mt-6"><AsyncSubmitButton type="button" onClick={resend} pending={sending} pendingLabel="Sending code…" disabled={cooldown > 0}>{cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}</AsyncSubmitButton></div>
+    <p className="mt-6 text-sm text-[var(--muted-text)]">Didn’t get the code? <button type="button" className="inline-flex items-center gap-1 font-medium text-[var(--teal)] underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)] disabled:cursor-not-allowed disabled:no-underline disabled:opacity-60" disabled={sending || cooldown > 0} aria-busy={sending} onClick={resend}>{sending && <svg className="size-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-30"/><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg>}{sending ? "Sending…" : cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}</button></p>
   </AuthLayout>;
 }

@@ -17,7 +17,7 @@ test("automatically checks delivery, shows email and cooldown, and reports an in
   const calls: string[] = [];
   globalThis.fetch = async (input) => {
     calls.push(String(input));
-    if (String(input).endsWith("/status")) return new Response(JSON.stringify({ email: "person@example.com", retryAfterSeconds: 0, hasActiveCode: false }), { status: 200 });
+    if (String(input).endsWith("/status")) return new Response(JSON.stringify({ email: "person@example.com", retryAfterSeconds: 0, hasIssuedCode: false, hasActiveCode: false }), { status: 200 });
     if (String(input).endsWith("/send")) return new Response(JSON.stringify({ email: "person@example.com", retryAfterSeconds: 60, sent: true }), { status: 200 });
     return new Response(JSON.stringify({ error: "Code is invalid or expired" }), { status: 400 });
   };
@@ -26,7 +26,7 @@ test("automatically checks delivery, shows email and cooldown, and reports an in
     render(createElement(VerifyEmailPage));
     await waitFor(() => assert.ok(screen.getByText("person@example.com")));
     assert.equal(calls.filter((url) => url.endsWith("/send")).length, 1);
-    assert.equal((screen.getByRole("button", { name: /Resend code in/ }) as HTMLButtonElement).disabled, true);
+    assert.equal((screen.getByRole("button", { name: /Resend in/ }) as HTMLButtonElement).disabled, true);
     await user.type(screen.getByLabelText("Verification code"), "123456");
     await user.click(screen.getByRole("button", { name: "Verify & continue" }));
     await waitFor(() => assert.ok(screen.getByRole("alert")));
@@ -39,12 +39,27 @@ test("an existing active code does not trigger another send on mount", async () 
   const calls: string[] = [];
   globalThis.fetch = async (input) => {
     calls.push(String(input));
-    return new Response(JSON.stringify({ email: "person@example.com", hasActiveCode: true, retryAfterSeconds: 44 }), { status: 200 });
+    return new Response(JSON.stringify({ email: "person@example.com", hasIssuedCode: true, hasActiveCode: true, retryAfterSeconds: 44 }), { status: 200 });
   };
   try {
     render(createElement(VerifyEmailPage));
     await waitFor(() => assert.ok(screen.getByText("person@example.com")));
     assert.equal(calls.filter((url) => url.endsWith("/send")).length, 0);
-    assert.equal((screen.getByRole("button", { name: /Resend code in/ }) as HTMLButtonElement).disabled, true);
+    assert.equal((screen.getByRole("button", { name: /Resend in/ }) as HTMLButtonElement).disabled, true);
+  } finally { globalThis.fetch = originalFetch; cleanup(); }
+});
+
+test("an exhausted code never auto-resends on refresh", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return new Response(JSON.stringify({ email: "person@example.com", hasIssuedCode: true, hasActiveCode: false, retryAfterSeconds: 0 }), { status: 200 });
+  };
+  try {
+    render(createElement(VerifyEmailPage));
+    await waitFor(() => assert.ok(screen.getByText(/code is unavailable/i)));
+    assert.equal(calls.filter((url) => url.endsWith("/send")).length, 0);
+    assert.equal((screen.getByRole("button", { name: "Resend code" }) as HTMLButtonElement).disabled, false);
   } finally { globalThis.fetch = originalFetch; cleanup(); }
 });

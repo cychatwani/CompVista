@@ -33,8 +33,9 @@ export class EmailOtpService {
       if (currentUser.emailVerified || currentUser.mustChangePassword) throw new ForbiddenException('Email verification is not available for this session');
       const previous = await tx.email_verification_otp.findUnique({ where: { userId: user.id } });
       const cooldown = previous ? Math.max(0, COOLDOWN_MS - (now.getTime() - previous.sentAt.getTime())) : 0;
-      if (!resend && previous && previous.email === currentUser.email && previous.expiresAt > now && previous.attempts < MAX_ATTEMPTS) {
-        return { email: currentUser.email, sent: false, retryAfterSeconds: Math.ceil(cooldown / 1000), expiresInSeconds: Math.ceil((previous.expiresAt.getTime() - now.getTime()) / 1000) };
+      // A page mount may ensure the first code, but only an explicit resend may replace any previous issue.
+      if (!resend && previous) {
+        return { email: currentUser.email, sent: false, retryAfterSeconds: Math.ceil(cooldown / 1000), expiresInSeconds: Math.max(0, Math.ceil((previous.expiresAt.getTime() - now.getTime()) / 1000)) };
       }
       if (cooldown > 0) throw new HttpException('Wait before requesting another code', 429);
       const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
