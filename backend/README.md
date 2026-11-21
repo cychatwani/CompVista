@@ -45,3 +45,7 @@ Pass `--reset-passwords` to replace existing seeded users? passwords with new ra
 ## Mandatory temporary-password change
 
 Flyway V5 adds `user.mustChangePassword` and marks existing credential accounts as requiring a change. The development seed marks newly created users and explicitly reset passwords as temporary. Run `npm run db:migrate` before deploying this code. The login outcome checks this flag first. `POST /api/mandatory-password-change` requires a Better Auth session, current password, and a new password meeting all five policy rules; it delegates the password update to Better Auth, revokes other sessions, then clears the flag. `/api/access` denies users whose flag remains set.
+
+## Mail sender
+
+`MailSenderService` is a backend-only Resend sender. Set `RESEND_EMAIL_API_KEY` and `RESEND_FROM_EMAIL` in `backend/.env` (or the env file selected by `COMPVISTA_ENV_FILE`). The sender address must be permitted by your Resend account. No authentication email flow calls this service yet.
