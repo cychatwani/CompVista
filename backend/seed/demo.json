@@ -1,0 +1,17 @@
+{
+  "organization": {
+    "name": "CompVista Demo",
+    "slug": "compvista-demo"
+  },
+  "users": [
+    { "email": "cyc4597@gmail.com", "name": "CompVista Admin", "role": "admin" },
+    { "email": "compvista.demo.hr1@yopmail.com", "name": "Demo HR 1", "role": "hr" },
+    { "email": "compvista.demo.hr2@yopmail.com", "name": "Demo HR 2", "role": "hr" },
+    { "email": "compvista.demo.hr3@yopmail.com", "name": "Demo HR 3", "role": "hr" }
+  ],
+  "generatedEmployees": {
+    "count": 5,
+    "emailPrefix": "compvista.demo.employee",
+    "namesFile": "scripts/common_indian_names.json"
+  }
+}

@@ -19,7 +19,6 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: [process.env.FRONTEND_URL ?? 'http://localhost:3000'],
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
-  user: { deleteUser: { enabled: process.env.COMPVISTA_SEED === '1' } },
   emailAndPassword: { enabled: true, disableSignUp: process.env.COMPVISTA_SEED !== '1' },
   disabledPaths: process.env.COMPVISTA_SEED === '1' ? [] : [
     '/sign-up/email',

@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { loadSeedPlan, type PlannedPerson, type SeedRole } from './seed-plan.js';
 
 config({ path: process.env.COMPVISTA_ENV_FILE ?? '.env' });
 if (process.env.NODE_ENV === 'production') throw new Error('Refusing development seed in production mode');
@@ -12,12 +13,10 @@ if (process.env.COMPVISTA_DEV_SEED !== 'YES') throw new Error('Set COMPVISTA_DEV
 if (!process.env.DATABASE_URL || !process.env.NEON_BRANCH) throw new Error('Neon DATABASE_URL and NEON_BRANCH are required');
 process.env.COMPVISTA_SEED = '1';
 
-type SeedRole = 'admin' | 'hr' | 'employee';
-const people: { email: string; name: string; role: SeedRole }[] = [
-  { email: 'cyc4597@gmail.com', name: 'CompVista Admin', role: 'admin' },
-  ...[1, 2, 3].map((n) => ({ email: `compvista.demo.hr${n}@yopmail.com`, name: `Demo HR ${n}`, role: 'hr' as const })),
-  ...[1, 2, 3, 4, 5].map((n) => ({ email: `compvista.demo.employee${n}@yopmail.com`, name: `Demo Employee ${n}`, role: 'employee' as const })),
-];
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== '--input')) throw new Error('Usage: npm run seed:dev -- --input seed/plan.json');
+const plan = loadSeedPlan(args[1] ?? 'seed/demo.json');
+const people = plan.people;
 const roleDefaults = {
   admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
   hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
@@ -36,7 +35,7 @@ function restrictFile(path: string, created: boolean): void {
   if (result.status !== 0) throw new Error('Local credential file ACL is not restricted to the current user; no database changes were made');
 }
 
-function credentials(): Record<string, string> {
+function credentials(targets: PlannedPerson[]): Record<string, string> {
   mkdirSync(resolve('.local'), { recursive: true, mode: 0o700 });
   let values: Record<string, string>;
   let created = false;
@@ -44,37 +43,39 @@ function credentials(): Record<string, string> {
     values = JSON.parse(readFileSync(credentialPath, 'utf8')) as Record<string, string>;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    values = Object.fromEntries(people.map((person) => [person.email, randomBytes(24).toString('base64url')]));
+    values = Object.fromEntries(targets.map((person) => [person.email, randomBytes(24).toString('base64url')]));
     writeFileSync(credentialPath, JSON.stringify(values, null, 2), { flag: 'wx', mode: 0o600 });
     created = true;
   }
   restrictFile(credentialPath, created);
-  for (const person of people) {
+  let extended = false;
+  for (const person of targets) {
+    if (!values[person.email]) {
+      values[person.email] = randomBytes(24).toString('base64url');
+      extended = true;
+    }
+  }
+  if (extended) writeFileSync(credentialPath, JSON.stringify(values, null, 2));
+  for (const person of targets) {
     if (!values[person.email] || values[person.email].length < 24) throw new Error(`Missing stored credential for ${person.email}`);
   }
   return values;
 }
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
-const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, legacyOwnersRemoved: 0 };
+const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0 };
 
 async function main(): Promise<void> {
-  const passwords = credentials();
+  const passwords = credentials(people);
   const { auth } = await import('../src/auth.js');
   try {
-    const orgs = await prisma.organization.findMany({ where: { slug: 'compvista-demo' } });
+    const orgs = await prisma.organization.findMany({ where: { slug: plan.organization.slug } });
     if (orgs.length > 1) throw new Error('Duplicate demo organizations found');
     let org = orgs[0];
-    if (org && org.name !== 'CompVista Demo') throw new Error('Demo organization slug belongs to a different name');
+    if (org && org.name !== plan.organization.name) throw new Error('Organization slug belongs to a different name');
     const currentMembers = org ? await prisma.member.findMany({ where: { organizationId: org.id }, include: { user: true } }) : [];
     const intended = new Set(people.map((person) => person.email));
-    const legacy = currentMembers.filter((member) => member.user.email === 'owner@compvista.local');
-    if (legacy.length > 1 || currentMembers.some((member) => !intended.has(member.user.email) && member.user.email !== 'owner@compvista.local')) {
-      throw new Error('Demo organization has an unrelated member; refusing to change it');
-    }
-    if (legacy.length && (legacy[0].role !== 'owner' || !process.env.DEV_OWNER_PASSWORD)) {
-      throw new Error('Legacy owner cannot be safely reconciled; check DEV_OWNER_PASSWORD and owner role');
-    }
+    if (currentMembers.some((member) => !intended.has(member.user.email))) throw new Error('Organization has a member outside the seed plan');
     for (const person of people) {
       const existing = await prisma.user.findUnique({ where: { email: person.email }, include: { member: true } });
       if (existing?.member && (existing.member.role !== person.role || (org && existing.member.organizationId !== org.id))) {
@@ -90,10 +91,10 @@ async function main(): Promise<void> {
       await auth.api.signUpEmail({ body: { email: person.email, name: person.name, password: passwords[person.email] } });
       counts.usersCreated++;
     }
-    const admin = await prisma.user.findUniqueOrThrow({ where: { email: people[0].email } });
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: people.find((person) => person.role === 'admin')!.email } });
     if (!org) {
-      await auth.api.createOrganization({ body: { name: 'CompVista Demo', slug: 'compvista-demo', userId: admin.id } });
-      org = await prisma.organization.findUniqueOrThrow({ where: { slug: 'compvista-demo' } });
+      await auth.api.createOrganization({ body: { name: plan.organization.name, slug: plan.organization.slug, userId: admin.id } });
+      org = await prisma.organization.findUniqueOrThrow({ where: { slug: plan.organization.slug } });
       counts.organizationsCreated++;
     } else counts.organizationsSkipped++;
 
@@ -127,20 +128,19 @@ async function main(): Promise<void> {
       } else {
         if (profile.organizationId !== org.id) throw new Error(`Employee profile organization mismatch for ${person.email}`);
         counts.profilesSkipped++;
+        if (person.generated && /^Demo Employee \d+$/.test(user.name) && profile.displayName === user.name) {
+          await prisma.$transaction([
+            prisma.user.update({ where: { id: user.id }, data: { name: person.name } }),
+            prisma.employee.update({ where: { id: profile.id }, data: { displayName: person.name } }),
+          ]);
+          counts.namesUpdated++;
+        }
       }
     }
 
-    if (legacy.length) {
-      const legacyResponse = await auth.api.signInEmail({ body: { email: 'owner@compvista.local', password: process.env.DEV_OWNER_PASSWORD! }, asResponse: true });
-      const cookie = legacyResponse.headers.get('set-cookie')?.split(';')[0];
-      if (!cookie) throw new Error('Could not authenticate legacy owner for cleanup');
-      await auth.api.deleteUser({ body: { password: process.env.DEV_OWNER_PASSWORD! }, headers: new Headers({ cookie }) });
-      counts.legacyOwnersRemoved++;
-    }
-
     const seededMembers = await prisma.member.findMany({ where: { organizationId: org.id }, include: { user: true } });
-    if (seededMembers.length !== 9 || seededMembers.some((member) => !member.roleId || !intended.has(member.user.email))) throw new Error('Final membership verification failed');
-    if (await prisma.organization.count({ where: { slug: 'compvista-demo' } }) !== 1) throw new Error('Demo organization count mismatch');
+    if (seededMembers.length !== people.length || seededMembers.some((member) => !member.roleId || !intended.has(member.user.email))) throw new Error('Final membership verification failed');
+    if (await prisma.organization.count({ where: { slug: plan.organization.slug } }) !== 1) throw new Error('Organization count mismatch');
     console.log(JSON.stringify(counts));
     console.log('Credentials stored in backend/.local/dev-seed-credentials.json; values hidden');
   } catch (error) {
