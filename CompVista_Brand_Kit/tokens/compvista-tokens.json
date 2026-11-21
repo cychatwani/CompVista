@@ -1,0 +1,66 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "name": "CompVista",
+  "version": "1.0",
+  "color": {
+    "deep": {
+      "$value": "#0F4C5C",
+      "$type": "color"
+    },
+    "teal": {
+      "$value": "#1E6F7A",
+      "$type": "color"
+    },
+    "jade": {
+      "$value": "#2F9E8F",
+      "$type": "color"
+    },
+    "mist": {
+      "$value": "#EEF4F3",
+      "$type": "color"
+    },
+    "charcoal": {
+      "$value": "#172126",
+      "$type": "color"
+    },
+    "slate": {
+      "$value": "#6B7B80",
+      "$type": "color"
+    },
+    "paper": {
+      "$value": "#FAFCFB",
+      "$type": "color"
+    },
+    "white": {
+      "$value": "#FFFFFF",
+      "$type": "color"
+    },
+    "sea": {
+      "$value": "#92DCCB",
+      "$type": "color"
+    }
+  },
+  "typography": {
+    "display": {
+      "family": "Manrope",
+      "weights": [
+        600,
+        700,
+        800
+      ]
+    },
+    "interface": {
+      "family": "Inter",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ]
+    }
+  },
+  "notes": {
+    "wordmark": "Outlined Inter Display–based custom-lockup; use supplied logo SVG for fidelity.",
+    "accessibility": "Verify contrast before using Jade, Slate or Teal for body text."
+  }
+}

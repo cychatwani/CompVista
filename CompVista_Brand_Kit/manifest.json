@@ -1,0 +1,221 @@
+{
+  "name": "CompVista Brand Kit",
+  "version": "1.0",
+  "assets": [
+    {
+      "path": "00_START_HERE.md",
+      "bytes": 4440,
+      "sha256": "254fa8d67fd8ffd5a64cc49ab313fcc8c4e0abf2f33b3e6f87f655d7ca423946"
+    },
+    {
+      "path": "favicon/favicon-dark-16.png",
+      "bytes": 500,
+      "sha256": "66426778d6e81014caeb65ae3b75e303ca839e056fc8a729a4b3c5e7e1e14c0e"
+    },
+    {
+      "path": "favicon/favicon-dark-32.png",
+      "bytes": 971,
+      "sha256": "3f38b15b9c44c5be89cbf48f7098d042f868b912954d6fee2f59732c67ebb26f"
+    },
+    {
+      "path": "favicon/favicon-dark-48.png",
+      "bytes": 1451,
+      "sha256": "daaee5bf45b58ae5b3e4857afaa4837edc459a1444715432f32e7519ab79d67d"
+    },
+    {
+      "path": "favicon/favicon-dark-64.png",
+      "bytes": 1941,
+      "sha256": "358f305a2dac09976a07a9dd54c225d2eb1b3c065cc58bcf697a9239d5f5b127"
+    },
+    {
+      "path": "favicon/favicon-dark.svg",
+      "bytes": 682,
+      "sha256": "789227e0738047c8003c8580980c55230fcd834ddfc0b508ec365409d9ad3f5e"
+    },
+    {
+      "path": "favicon/favicon-html-example.txt",
+      "bytes": 387,
+      "sha256": "de7ebba195891a1b96522f29e74fb44b76c143312a11c09c730bd06fd8a6aefe"
+    },
+    {
+      "path": "favicon/favicon-light-16.png",
+      "bytes": 482,
+      "sha256": "7c65777478c8da5f0ec9a47cf1a026791efdb3488de28d00b826e355f8db3409"
+    },
+    {
+      "path": "favicon/favicon-light-32.png",
+      "bytes": 937,
+      "sha256": "40f2164a808965ab71e9f693e26079aa6bcc161f2dbae046b53de0fba216711a"
+    },
+    {
+      "path": "favicon/favicon-light-48.png",
+      "bytes": 1435,
+      "sha256": "b437b7365f8018c8feb17717bc926671907c01c161a6a8449f4e3c443d09f3d6"
+    },
+    {
+      "path": "favicon/favicon-light-64.png",
+      "bytes": 1942,
+      "sha256": "7423ca0a7655a2674a9707874c9b676c71328da752c4030e88c856cb059b4c5c"
+    },
+    {
+      "path": "favicon/favicon-light.svg",
+      "bytes": 682,
+      "sha256": "ce1a362a47a9d8a313c7821eb5fd668027a0a35ed2a4260306308133fd8f8e82"
+    },
+    {
+      "path": "favicon/favicon.ico",
+      "bytes": 6579,
+      "sha256": "fac64325ca0628aa5e5c2286b8c51dc5f8d541038c0f82039c630e3901195b64"
+    },
+    {
+      "path": "guidelines/CompVista_Brand_Guide.pdf",
+      "bytes": 207557,
+      "sha256": "2cad5d0d5dac1522f74d4ac17319281005753ecaf65650b1b83185b93b214392"
+    },
+    {
+      "path": "logos/png/compvista-primary-dark@1x.png",
+      "bytes": 27250,
+      "sha256": "967667fa85a4d6762329c8dad2145d7bed8f888910f1179c2d4bdeca8087f8fa"
+    },
+    {
+      "path": "logos/png/compvista-primary-dark@2x.png",
+      "bytes": 57431,
+      "sha256": "69fb9bc987332fe38b7706a29e8b0311cb621902fa1d4eab77ca8829de75f1cf"
+    },
+    {
+      "path": "logos/png/compvista-primary-light@1x.png",
+      "bytes": 20915,
+      "sha256": "d87a5a53eefa5d1ecd9d71525ef4f9e39bd1e1f77dcdd5a9c079856fdcc8186c"
+    },
+    {
+      "path": "logos/png/compvista-primary-light@2x.png",
+      "bytes": 45567,
+      "sha256": "4ed8a004cb6bc28ce5bb0063eabab28377f1c7b7a9e2f1e5d9375b00e0882f2d"
+    },
+    {
+      "path": "logos/png/compvista-primary-monochrome.png",
+      "bytes": 46473,
+      "sha256": "688781a34a458e75db89a854aac29f4e36ae12725e046118e2bf440cb0797b4c"
+    },
+    {
+      "path": "logos/png/compvista-primary-white.png",
+      "bytes": 35939,
+      "sha256": "0b93644b43147a95d672add5f0a8b54a6ad178c951ea82641f72338eef828bb0"
+    },
+    {
+      "path": "logos/png/compvista-secondary-stacked-dark.png",
+      "bytes": 43589,
+      "sha256": "c2e8d14cf31414f6d69553f0b9ce48463883442e25766a634d34f17314dba605"
+    },
+    {
+      "path": "logos/png/compvista-secondary-stacked-light.png",
+      "bytes": 34257,
+      "sha256": "985c5a926b3993023c8becd2db2bf230e4c9e8629786bfa91750c1b3ed0e243b"
+    },
+    {
+      "path": "logos/svg/compvista-primary-dark.svg",
+      "bytes": 5115,
+      "sha256": "721e365211e68f6a5412cd6096c2d5c2bd96b9f94cc746dabd60165f500b7c34"
+    },
+    {
+      "path": "logos/svg/compvista-primary-light.svg",
+      "bytes": 5115,
+      "sha256": "dd8bbe985c2a6d3886fe7b3b91dee17be368fc54b5fbdca288944efead34ea7b"
+    },
+    {
+      "path": "logos/svg/compvista-primary-monochrome.svg",
+      "bytes": 5115,
+      "sha256": "067589004c6e817a05840b710f821b64003de7e6953b7a89ae62ab07725b5d52"
+    },
+    {
+      "path": "logos/svg/compvista-primary-white.svg",
+      "bytes": 5115,
+      "sha256": "decd4da3d88542f26747fed3618c19796b0cdb090333c0e3bbbb262f741af744"
+    },
+    {
+      "path": "logos/svg/compvista-secondary-stacked-dark.svg",
+      "bytes": 5062,
+      "sha256": "f2d3efb676964e618636199df85c919176dd5289de83b02d62d68af284c9b611"
+    },
+    {
+      "path": "logos/svg/compvista-secondary-stacked-light.svg",
+      "bytes": 5062,
+      "sha256": "2d72dea38d00e0d815a7f6c350752614f0b8802bfe5f37d17b15eec2ca0f02c9"
+    },
+    {
+      "path": "preview/compvista-brand-hero.png",
+      "bytes": 87161,
+      "sha256": "f9a39a4b6f00f7bcaf7e586d64fecd9803d06a1343ae020c8db8f7c9dac06723"
+    },
+    {
+      "path": "preview/compvista-logo-system.png",
+      "bytes": 118904,
+      "sha256": "edd9b27c7d343667a72113f4a76593f1ed3953177860e67cd14bf6d480f3e7f4"
+    },
+    {
+      "path": "preview/index.html",
+      "bytes": 3485,
+      "sha256": "a820180c18142f100d9fd5e4bb0cf098546623fb1e1c33a1723eba26845778db"
+    },
+    {
+      "path": "sources/compvista-primary-editable.svg",
+      "bytes": 793,
+      "sha256": "1170119f3b9173615c67b15b4fc96dc05b3fc1ddeeb9518d6d2438254a17d745"
+    },
+    {
+      "path": "sources/compvista-secondary-stacked-editable.svg",
+      "bytes": 814,
+      "sha256": "38c3839a8c657d3aab428b6e6b36378d5bba7098b1539b87c7932eb639e41d38"
+    },
+    {
+      "path": "symbol/png/compvista-symbol-charcoal-512.png",
+      "bytes": 10994,
+      "sha256": "871b413f21101d5a980300576e5ecafbd14df6e6f167abd322fdee32d36b8123"
+    },
+    {
+      "path": "symbol/png/compvista-symbol-color-512.png",
+      "bytes": 11038,
+      "sha256": "c12ce875cd9907fb7be2c82d0e7849600d446501ede067a4658aa83377ec0a3b"
+    },
+    {
+      "path": "symbol/png/compvista-symbol-reverse-512.png",
+      "bytes": 9526,
+      "sha256": "7f3453e248a47b897df4a8d618d7fec1555e35f285743cacf17839c4be48688a"
+    },
+    {
+      "path": "symbol/png/compvista-symbol-white-512.png",
+      "bytes": 8924,
+      "sha256": "e042162cb85ab0d4d1a689572a9814791975d5a7b7a48b25fe00f0bb6e7db84e"
+    },
+    {
+      "path": "symbol/svg/compvista-symbol-charcoal.svg",
+      "bytes": 629,
+      "sha256": "e7ec4b27b96c62712736b887630fd18c845c3de825d71add95dfcbca1bf5f331"
+    },
+    {
+      "path": "symbol/svg/compvista-symbol-color.svg",
+      "bytes": 629,
+      "sha256": "51d5e3207e998a9ffd34326e4b92735f0da8d8fa810f64e1f819a7377fc93712"
+    },
+    {
+      "path": "symbol/svg/compvista-symbol-reverse.svg",
+      "bytes": 629,
+      "sha256": "aa864f65bbc877932081398aa8cb0b64f2abfcdca55e218bb1489ad0f88ee01f"
+    },
+    {
+      "path": "symbol/svg/compvista-symbol-white.svg",
+      "bytes": 629,
+      "sha256": "c9187bf2a2934f8fc2df52fa9d4e363c9ec079f000ea72aa30a57eb61e00df99"
+    },
+    {
+      "path": "tokens/compvista-tokens.css",
+      "bytes": 735,
+      "sha256": "7ce36299b8667e618639f4cb97dd7fe468dad0dd22b3970f9ba1cf5962ecf8ca"
+    },
+    {
+      "path": "tokens/compvista-tokens.json",
+      "bytes": 1253,
+      "sha256": "e64f29701307dfcf4c0e9f7fc7da2ab7cfcb5b32f1ff6255e5f52842c5e02f70"
+    }
+  ]
+}

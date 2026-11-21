@@ -1,0 +1,25 @@
+/* CompVista brand tokens · v1.0 */
+:root {
+  --cv-brand-primary: #0F4C5C;
+  --cv-brand-secondary: #1E6F7A;
+  --cv-accent-jade: #2F9E8F;
+  --cv-bg-mist: #EEF4F3;
+  --cv-bg-paper: #FAFCFB;
+  --cv-text-primary: #172126;
+  --cv-text-muted: #6B7B80;
+  --cv-border: #DAE5E3;
+  --cv-white: #FFFFFF;
+  --cv-font-display: "Manrope", "Inter", system-ui, sans-serif;
+  --cv-font-ui: "Inter", system-ui, sans-serif;
+  --cv-radius-sm: 6px;
+  --cv-radius-md: 10px;
+  --cv-radius-lg: 16px;
+}
+/* Jade is an accent for data and decorative emphasis; do not use on white for small body copy. */
+[data-theme="dark"] {
+  --cv-bg-paper: #10282E;
+  --cv-bg-mist: #163840;
+  --cv-text-primary: #F6FBFA;
+  --cv-text-muted: #B7C9C8;
+  --cv-border: #31565C;
+}
