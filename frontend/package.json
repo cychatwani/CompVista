@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --import tsx --test tests/login-form.test.mts tests/reset-password.test.mts tests/login-route.test.mts",
+    "test": "node --import tsx --test tests/login-form.test.mts tests/reset-password.test.mts tests/login-route.test.mts tests/verify-email.test.mts",
     "test:browser": "node tests/login-browser.mjs"
   },
   "dependencies": {
