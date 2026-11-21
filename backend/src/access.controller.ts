@@ -1,16 +1,42 @@
-import { Controller, Get, Req, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Req, Res, UnauthorizedException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { auth } from './auth.js';
+import { validNewPassword } from './password-policy.js';
 import { PrismaService } from './prisma/prisma.service.js';
 
-@Controller('api/access')
+@Controller('api')
 export class AccessController {
   constructor(private readonly prisma: PrismaService) {}
-  @Get()
-  async check(@Req() request: { headers: { cookie?: string } }): Promise<{ authenticated: true }> {
+  private async state(request: { headers: { cookie?: string } }) {
     const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
     if (!session?.user) throw new UnauthorizedException();
-    const user = await this.prisma.user.findUnique({ where: { id: session.user.id }, select: { emailVerified: true, twoFactorEnabled: true } });
-    if (!user?.emailVerified || !user.twoFactorEnabled) throw new ForbiddenException('Authentication requirements incomplete');
+    const user = await this.prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, emailVerified: true, twoFactorEnabled: true, mustChangePassword: true } });
+    if (!user) throw new UnauthorizedException();
+    return user;
+  }
+
+  @Get('auth-state')
+  async authState(@Req() request: { headers: { cookie?: string } }) {
+    const user = await this.state(request);
+    return { nextStep: user.mustChangePassword ? 'RESET_PASSWORD' : !user.emailVerified ? 'VERIFY_EMAIL' : !user.twoFactorEnabled ? 'SETUP_TOTP' : 'AUTHENTICATED' };
+  }
+
+  @Post('mandatory-password-change')
+  async changePassword(@Req() request: { headers: { cookie?: string } }, @Res({ passthrough: true }) response: { setHeader(name: string, value: string[]): void }, @Body() body: { currentPassword?: string; newPassword?: string; confirmPassword?: string }) {
+    const user = await this.state(request);
+    if (!user.mustChangePassword) throw new BadRequestException('Password change is not required');
+    if (!body.currentPassword || !body.newPassword || body.newPassword !== body.confirmPassword || !validNewPassword(body.newPassword)) throw new BadRequestException('Password does not meet requirements or confirmation does not match');
+    const changed = await auth.api.changePassword({ headers: new Headers({ cookie: request.headers.cookie ?? '' }), body: { currentPassword: body.currentPassword, newPassword: body.newPassword, revokeOtherSessions: true }, asResponse: true });
+    if (!changed.ok) throw new BadRequestException('Current password is incorrect');
+    await this.prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: false } });
+    const cookies = changed.headers.getSetCookie();
+    if (cookies.length) response.setHeader('Set-Cookie', cookies);
+    return { nextStep: !user.emailVerified ? 'VERIFY_EMAIL' : !user.twoFactorEnabled ? 'SETUP_TOTP' : 'AUTHENTICATED' };
+  }
+
+  @Get('access')
+  async check(@Req() request: { headers: { cookie?: string } }): Promise<{ authenticated: true }> {
+    const user = await this.state(request);
+    if (user.mustChangePassword || !user.emailVerified || !user.twoFactorEnabled) throw new ForbiddenException('Authentication requirements incomplete');
     return { authenticated: true };
   }
 }
