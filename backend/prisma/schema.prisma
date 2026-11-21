@@ -114,6 +114,17 @@ model user {
   member           member?
   session          session[]
   twoFactor        twoFactor[]
+  emailVerificationOtp email_verification_otp?
+}
+
+model email_verification_otp {
+  userId    String   @id
+  email     String
+  codeHash  String
+  expiresAt DateTime @db.Timestamptz(6)
+  sentAt    DateTime @db.Timestamptz(6)
+  attempts  Int      @default(0)
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model verification {
