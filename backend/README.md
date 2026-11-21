@@ -48,4 +48,8 @@ Flyway V5 adds `user.mustChangePassword` and marks existing credential accounts 
 
 ## Mail sender
 
-`MailSenderService` is a backend-only Resend sender. Set `RESEND_EMAIL_API_KEY` and `RESEND_FROM_EMAIL` in `backend/.env` (or the env file selected by `COMPVISTA_ENV_FILE`). The sender address must be permitted by your Resend account. No authentication email flow calls this service yet.
+`MailSenderService` is a backend-only Resend sender. Set `RESEND_API_KEY` and `EMAIL_FROM` in `backend/.env` (or the env file selected by `COMPVISTA_ENV_FILE`). The sender address must be permitted by your Resend account. The older `RESEND_EMAIL_API_KEY` and `RESEND_FROM_EMAIL` names remain accepted.
+
+## Email OTP verification
+
+Flyway V6 creates a per-user OTP record; V7 binds it to the exact email address. The restricted Better Auth session identifies the user for `GET /api/email-otp/status` and `POST /api/email-otp/send`, `/resend`, and `/verify`. The six-digit code is generated with `crypto.randomInt`, stored as an HMAC-SHA256 hash keyed by `BETTER_AUTH_SECRET`, and expires after 10 minutes. A user may try five codes per issue and request a new code after 60 seconds. Sending a new code replaces the old record. A successful verification marks the user verified and consumes the record in one database transaction. An active code is reused on page remount without sending another email. Mandatory password change and completed verification both block these endpoints. `/api/access` continues to require email verification and TOTP.

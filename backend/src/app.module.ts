@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HelloController } from './hello.controller.js';
 import { AccessController } from './access.controller.js';
-import { MailSenderService } from './mail-sender.service.js';
+import { EmailService } from './email.service.js';
+import { EmailOtpService } from './email-otp.service.js';
+import { EmailOtpController } from './email-otp.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
@@ -21,7 +23,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     }),
     PrismaModule,
   ],
-  controllers: [HelloController, AccessController],
-  providers: [MailSenderService],
+  controllers: [HelloController, AccessController, EmailOtpController],
+  providers: [EmailService, EmailOtpService],
 })
 export class AppModule {}
