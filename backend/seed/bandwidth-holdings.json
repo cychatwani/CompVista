@@ -1,0 +1,33 @@
+{
+  "organization": {
+    "name": "Bandwidth Holdings",
+    "slug": "bandwidth-holdings"
+  },
+  "users": [
+    {
+      "email": "bandwidth.admin@yopmail.com",
+      "name": "Bandwidth Admin",
+      "role": "admin"
+    },
+    {
+      "email": "bandwidth.hr1@yopmail.com",
+      "name": "Bandwidth HR 1",
+      "role": "hr"
+    },
+    {
+      "email": "bandwidth.hr2@yopmail.com",
+      "name": "Bandwidth HR 2",
+      "role": "hr"
+    },
+    {
+      "email": "bandwidth.hr3@yopmail.com",
+      "name": "Bandwidth HR 3",
+      "role": "hr"
+    }
+  ],
+  "generatedEmployees": {
+    "count": 15,
+    "emailPrefix": "bandwidth.employee",
+    "namesFile": "scripts/common_indian_names.json"
+  }
+}

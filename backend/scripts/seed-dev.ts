@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { hashPassword } from 'better-auth/crypto';
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { defaultPermissions, loadSeedPlan, type PlannedPerson } from './seed-plan.js';
 
@@ -14,10 +15,13 @@ if (!process.env.DATABASE_URL || !process.env.NEON_BRANCH) throw new Error('Neon
 process.env.COMPVISTA_SEED = '1';
 
 const args = process.argv.slice(2);
-if (args.length && (args.length !== 2 || args[0] !== '--input')) throw new Error('Usage: npm run seed:dev -- --input seed/plan.json');
-const plan = loadSeedPlan(args[1] ?? 'seed/demo.json');
+const resetPasswords = args.includes('--reset-passwords');
+const inputArgs = args.filter((arg) => arg !== '--reset-passwords');
+if (inputArgs.length && (inputArgs.length !== 2 || inputArgs[0] !== '--input')) throw new Error('Usage: npm run seed:dev -- [--input seed/plan.json] [--reset-passwords]');
+const plan = loadSeedPlan(inputArgs[1] ?? 'seed/demo.json');
 const people = plan.people;
-const credentialPath = resolve('.local/dev-seed-credentials.json');
+const credentialPath = resolve('seed/generated', plan.organization.slug, 'credentials.json');
+const legacyCredentialPath = resolve('.local/dev-seed-credentials.json');
 
 function restrictFile(path: string, created: boolean): void {
   if (process.platform !== 'win32') return;
@@ -31,14 +35,17 @@ function restrictFile(path: string, created: boolean): void {
 }
 
 function credentials(targets: PlannedPerson[]): Record<string, string> {
-  mkdirSync(resolve('.local'), { recursive: true, mode: 0o700 });
+  mkdirSync(resolve('seed/generated', plan.organization.slug), { recursive: true, mode: 0o700 });
   let values: Record<string, string>;
   let created = false;
   try {
     values = JSON.parse(readFileSync(credentialPath, 'utf8')) as Record<string, string>;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    values = Object.fromEntries(targets.map((person) => [person.email, randomBytes(24).toString('base64url')]));
+    let legacy: Record<string, string> = {};
+    try { legacy = JSON.parse(readFileSync(legacyCredentialPath, 'utf8')) as Record<string, string>; }
+    catch (legacyError) { if ((legacyError as NodeJS.ErrnoException).code !== 'ENOENT') throw legacyError; }
+    values = Object.fromEntries(targets.map((person) => [person.email, legacy[person.email] ?? randomBytes(24).toString('base64url')]));
     writeFileSync(credentialPath, JSON.stringify(values, null, 2), { flag: 'wx', mode: 0o600 });
     created = true;
   }
@@ -58,7 +65,7 @@ function credentials(targets: PlannedPerson[]): Record<string, string> {
 }
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
-const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, permissionsUpdated: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0 };
+const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, permissionsUpdated: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0, passwordsReset: 0 };
 
 async function main(): Promise<void> {
   const passwords = credentials(people);
@@ -82,8 +89,22 @@ async function main(): Promise<void> {
     }
 
     for (const person of people) {
-      if (await prisma.user.findUnique({ where: { email: person.email } })) { counts.usersSkipped++; continue; }
+      const existingUser = await prisma.user.findUnique({ where: { email: person.email } });
+      if (existingUser) {
+        counts.usersSkipped++;
+        if (resetPasswords) {
+          const newPassword = randomBytes(24).toString('base64url');
+          const account = await prisma.account.findFirstOrThrow({ where: { userId: existingUser.id, providerId: 'credential' } });
+          await prisma.account.update({ where: { id: account.id }, data: { password: await hashPassword(newPassword) } });
+          await prisma.user.update({ where: { id: existingUser.id }, data: { mustChangePassword: true } });
+          passwords[person.email] = newPassword;
+          writeFileSync(credentialPath, JSON.stringify(passwords, null, 2));
+          counts.passwordsReset++;
+        }
+        continue;
+      }
       await auth.api.signUpEmail({ body: { email: person.email, name: person.name, password: passwords[person.email] } });
+      await prisma.user.update({ where: { email: person.email }, data: { mustChangePassword: true } });
       counts.usersCreated++;
     }
     const admin = await prisma.user.findUniqueOrThrow({ where: { email: people.find((person) => person.role === 'admin')!.email } });
@@ -146,7 +167,7 @@ async function main(): Promise<void> {
     if (seededMembers.length !== people.length || seededMembers.some((member) => !member.roleId || !intended.has(member.user.email))) throw new Error('Final membership verification failed');
     if (await prisma.organization.count({ where: { slug: plan.organization.slug } }) !== 1) throw new Error('Organization count mismatch');
     console.log(JSON.stringify(counts));
-    console.log('Credentials stored in backend/.local/dev-seed-credentials.json; values hidden');
+    console.log(`Credentials stored in backend/seed/generated/${plan.organization.slug}/credentials.json; values hidden`);
   } catch (error) {
     console.error('Seed stopped after partial progress; rerun after resolving the error. Completed counts:', JSON.stringify(counts));
     throw error;

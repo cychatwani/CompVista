@@ -35,7 +35,7 @@ test('seeded roles, identities, profiles, and closed registration', async () => 
     assert.deepEqual(flags(roles.find((role) => role.key === 'hr')!), [true, true, true, false, false, false, true]);
     assert.deepEqual(flags(roles.find((role) => role.key === 'employee')!), [false, true, false, false, false, false, true]);
 
-    const passwords = JSON.parse(readFileSync('.local/dev-seed-credentials.json', 'utf8')) as Record<string, string>;
+    const passwords = JSON.parse(readFileSync('seed/generated/compvista-demo/credentials.json', 'utf8')) as Record<string, string>;
     const email = 'compvista.demo.employee1@yopmail.com';
     const signedIn = await auth.api.signInEmail({ body: { email, password: passwords[email] } });
     assert.equal(signedIn.user.email, email);

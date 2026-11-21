@@ -107,6 +107,7 @@ model user {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime
   twoFactorEnabled Boolean?     @default(false)
+  mustChangePassword Boolean    @default(false)
   account          account[]
   employee         employee?
   invitation       invitation[]

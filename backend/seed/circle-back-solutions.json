@@ -1,0 +1,6 @@
+{
+  "organization": { "name": "Circle Back Solutions", "slug": "circle-back-solutions" },
+  "users": [
+    { "email": "circle.back.admin@yopmail.com", "name": "Circle Back Admin", "role": "admin" }
+  ]
+}

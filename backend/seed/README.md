@@ -23,4 +23,6 @@ The input is one JSON object. See [demo.json](demo.json) for a complete example.
 | `canApproveOwnComp` | true | false | false |
 | `requiresApproval` | false | true | true |
 
-One `organization_role_permissions` row is created per role. A generated email keeps its sequence number across reruns, and its name is selected deterministically from the supplied lists. Existing passwords are never changed. Passwords are stored only in the ignored, access-restricted `backend/.local/dev-seed-credentials.json` file. This command is for development only and does not expose an HTTP endpoint.
+One `organization_role_permissions` row is created per role. A generated email keeps its sequence number across reruns, and its name is selected deterministically from the supplied lists. Existing passwords are never changed. Passwords are stored only in the ignored, access-restricted `backend/seed/generated/<organization-slug>/credentials.json` file. This command is for development only and does not expose an HTTP endpoint.
+
+Pass `--reset-passwords` to replace existing seeded users? passwords with new random values. The organization credential file is updated after each reset; ordinary reruns preserve passwords.

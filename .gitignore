@@ -11,3 +11,4 @@ backend/.local/
 backend/dist/
 backend/src/generated/
 .next/
+backend/seed/generated/

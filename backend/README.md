@@ -28,7 +28,7 @@ npm run seed:dev -- --input seed/demo.json
 npm run dev
 ```
 
-The seed refuses `NODE_ENV=production` and requires the explicit opt-in. It never runs on server startup. With the included JSON plan, it seeds `CompVista Demo`, one `cyc4597@gmail.com` tenant admin, three explicit Yopmail HR users, and five generated Yopmail employee users. Each identity gets one Employee profile. The real admin address remains unverified; no email is sent. Better Auth creates and hashes the passwords. The local credential file is `backend/.local/dev-seed-credentials.json`, ignored by Git and restricted to the current Windows user. Reruns leave existing passwords, role names, and permissions intact.
+The seed refuses `NODE_ENV=production` and requires the explicit opt-in. It never runs on server startup. With the included JSON plan, it seeds `CompVista Demo`, one `cyc4597@gmail.com` tenant admin, three explicit Yopmail HR users, and five generated Yopmail employee users. Each identity gets one Employee profile. The real admin address remains unverified; no email is sent. Better Auth creates and hashes the passwords. The local credential file is `backend/seed/generated/<organization-slug>/credentials.json`, ignored by Git and restricted to the current Windows user. Reruns leave existing passwords, role names, and permissions intact.
 
 For a different organization, copy `seed/demo.json` and change `organization.name` and optional `organization.slug`. Add explicit `{ "email", "name", "role" }` entries in `users` (one must be `admin`; others may be `hr` or `employee`). Set `generatedEmployees.count` to make additional employees. Their aliases use `generatedEmployees.emailPrefix` or the organization slug, plus a stable sequence number and `@yopmail.com`. Names are selected deterministically from the supplied `scripts/common_indian_names.json` first and last name lists, so reruns retain the same identity mapping. You can also pass `generatedEmployees.names` inline with `first_names` and `last_names` arrays. `parseSeedPlan` accepts the JSON object directly for future reuse outside the CLI; no API is exposed now.
 
@@ -39,3 +39,9 @@ The seed creates the organization when missing and reuses it when its slug and n
 `npm run build`, `npm run lint`, and `npm test` check the backend and `/hello`. For the isolated `milestone3-boolean-validation` Neon branch only, set `COMPVISTA_ENV_FILE=.env.boolean.test` and run `npm run test:integration`. That test verifies role and employee counts, single membership, password login, closed signup, and blocked organization creation. Do not point it at the linked production branch.
 
 Flyway migration and validation are explicit. Never run Prisma migration commands, `prisma db push`, or Better Auth migration commands. Prisma was introspected after Flyway applied V4, and its client was regenerated; Flyway's history table is intentionally omitted from the application Prisma schema.
+
+Pass `--reset-passwords` to replace existing seeded users? passwords with new random values. The organization credential file is updated after each reset; ordinary reruns preserve passwords.
+
+## Mandatory temporary-password change
+
+Flyway V5 adds `user.mustChangePassword` and marks existing credential accounts as requiring a change. The development seed marks newly created users and explicitly reset passwords as temporary. Run `npm run db:migrate` before deploying this code. The login outcome checks this flag first. `POST /api/mandatory-password-change` requires a Better Auth session, current password, and a new password meeting all five policy rules; it delegates the password update to Better Auth, revokes other sessions, then clears the flag. `/api/access` denies users whose flag remains set.
