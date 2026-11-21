@@ -6,6 +6,7 @@ import { createElement } from "react";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/login" });
 Object.assign(globalThis, {
   window: dom.window,
+  self: dom.window,
   document: dom.window.document,
   HTMLElement: dom.window.HTMLElement,
   MutationObserver: dom.window.MutationObserver,
