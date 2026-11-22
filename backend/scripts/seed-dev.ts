@@ -157,7 +157,7 @@ async function main(): Promise<void> {
       if (member.roleId && member.roleId !== role.id) throw new Error(`Role reference mismatch for ${person.email}`);
       const profile = await prisma.employee.findUnique({ where: { userId: user.id } });
       if (!profile) {
-        await prisma.employee.create({ data: { id: randomUUID(), userId: user.id, organizationId: org.id, displayName: person.name } });
+        await prisma.employee.create({ data: { id: randomUUID(), userId: user.id, organizationId: org.id, displayName: person.name, email: person.email, countryCode: 'IN' } });
         counts.profilesCreated++;
       } else {
         if (profile.organizationId !== org.id) throw new Error(`Employee profile organization mismatch for ${person.email}`);

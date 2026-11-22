@@ -68,7 +68,8 @@ function mapError(error: unknown): never {
 export class CompensationController {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async actor(request: RequestWithCookie, kind: 'read' | 'write' | 'approve') {
+  /** Signed-in member with the existing organization-wide compensation permission for `kind`. */
+  async actor(request: RequestWithCookie, kind: 'read' | 'write' | 'approve') {
     await new AccessController(this.prisma).check(request);
     const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
     if (!session?.user) throw new UnauthorizedException();
@@ -128,7 +129,7 @@ export class CompensationController {
   }
 
   private async employee(employeeId: string, organizationId: string) {
-    const employee = await this.prisma.employee.findFirst({ where: { id: employeeId, organizationId }, include: { organization: true } });
+    const employee = await this.prisma.employee.findFirst({ where: { id: employeeId, organizationId }, include: { organization: true, department: { select: { id: true, name: true, is_active: true } }, country: { select: { code: true, name: true, currency_code: true } } } });
     if (!employee) throw new NotFoundException('Employee not found');
     return employee;
   }
@@ -162,7 +163,7 @@ export class CompensationController {
     if (!session?.user) throw new UnauthorizedException();
     const member = await this.prisma.member.findUnique({ where: { userId: session.user.id }, include: { organization_role: { include: { organization_role_permissions: true } } } });
     if (!canViewOwnCompensation(member, session.session.activeOrganizationId)) throw new ForbiddenException('Compensation permission required');
-    const employee = await this.prisma.employee.findFirst({ where: { userId: session.user.id, organizationId: member!.organizationId }, include: { organization: true } });
+    const employee = await this.prisma.employee.findFirst({ where: { userId: session.user.id, organizationId: member!.organizationId }, include: { organization: true, department: { select: { id: true, name: true } }, country: { select: { code: true, name: true } } } });
     if (!employee) throw new NotFoundException('Employee profile not found');
     return employee;
   }
@@ -189,63 +190,6 @@ export class CompensationController {
     const rows = await this.prisma.employee_compensation.findMany({ where: { employee_id: employee.id, organization_id: employee.organizationId, status: { in: ['ACTIVE', 'SUPERSEDED'] } }, include: { currency: true, items: { include: { definition: true }, orderBy: { created_at: 'asc' } } }, orderBy: { effective_from: 'desc' } });
     const active = rows.find((row) => row.status === 'ACTIVE');
     return { employee: { id: employee.id, displayName: employee.displayName, organizationId: employee.organizationId, organization: { name: employee.organization.name } }, active: active ? this.withSummary(active) : null, history: rows.map((row) => this.withSummary(row)) };
-  }
-
-  // Organization-wide totals for the management dashboard. Amounts are grouped by currency
-  // so packages in different currencies are never summed together.
-  @Get('compensation/stats')
-  async stats(@Req() request: RequestWithCookie) {
-    const actor = await this.actor(request, 'read');
-    const [employees, drafts, pending, active] = await Promise.all([
-      this.prisma.employee.findMany({ where: { organizationId: actor.organizationId }, select: { id: true, user: { select: { member: { select: { role: true } } } } } }),
-      this.prisma.employee_compensation.count({ where: { organization_id: actor.organizationId, status: 'DRAFT' } }),
-      this.prisma.employee_compensation.count({ where: { organization_id: actor.organizationId, status: 'PENDING_APPROVAL' } }),
-      this.prisma.employee_compensation.findMany({ where: { organization_id: actor.organizationId, status: 'ACTIVE' }, include: { currency: true, items: { include: { definition: true } } } }),
-    ]);
-    const roleOf = new Map(employees.map((employee) => [employee.id, employee.user.member?.role ?? 'employee']));
-    const byCurrency = new Map<string, typeof active>();
-    for (const row of active) byCurrency.set(row.currency_code, [...(byCurrency.get(row.currency_code) ?? []), row]);
-    const currencies = [...byCurrency.entries()].sort((a, b) => b[1].length - a[1].length).map(([code, rows]) => {
-      const decimals = rows[0].currency.decimal_places;
-      const fixed = (value: Prisma.Decimal) => value.toDecimalPlaces(decimals, Prisma.Decimal.ROUND_HALF_UP).toFixed(decimals);
-      const summaries = rows.map((row) => ({ row, summary: this.withSummary(row).summary }));
-      const annual = summaries.map(({ summary }) => new Prisma.Decimal(summary.annualCtc)).sort((a, b) => a.comparedTo(b));
-      const total = (key: 'monthlyGross' | 'monthlyEmployerContributions' | 'monthlyEmployeeDeductions' | 'monthlyCtc' | 'annualCtc') => summaries.reduce((sum, { summary }) => sum.add(summary[key]), new Prisma.Decimal(0));
-      const middle = Math.floor(annual.length / 2);
-      const median = annual.length % 2 ? annual[middle] : annual[middle - 1].add(annual[middle]).div(2);
-      const components = new Map<string, { name: string; category: string; monthly: Prisma.Decimal; annual: Prisma.Decimal; oneTime: Prisma.Decimal; frequencies: Set<Frequency> }>();
-      for (const row of rows) for (const item of row.items) {
-        const entry = components.get(item.definition.code) ?? { name: item.definition.name, category: item.definition.category, monthly: new Prisma.Decimal(0), annual: new Prisma.Decimal(0), oneTime: new Prisma.Decimal(0), frequencies: new Set<Frequency>() };
-        entry.monthly = entry.monthly.add(item.resolved_monthly_amount);
-        entry.annual = entry.annual.add(item.annual_amount);
-        if (item.frequency === 'ONE_TIME') entry.oneTime = entry.oneTime.add(item.resolved_amount);
-        entry.frequencies.add(item.frequency);
-        components.set(item.definition.code, entry);
-      }
-      const roles = new Map<string, { count: number; annual: Prisma.Decimal }>();
-      for (const { row, summary } of summaries) {
-        const role = roleOf.get(row.employee_id) ?? 'employee';
-        const entry = roles.get(role) ?? { count: 0, annual: new Prisma.Decimal(0) };
-        entry.count++; entry.annual = entry.annual.add(summary.annualCtc);
-        roles.set(role, entry);
-      }
-      const bucketCount = 6;
-      const low = annual[0], high = annual[annual.length - 1];
-      const width = high.sub(low).div(bucketCount);
-      const distribution = Array.from({ length: bucketCount }, (_, index) => ({ from: fixed(low.add(width.mul(index))), to: fixed(index === bucketCount - 1 ? high : low.add(width.mul(index + 1))), count: 0 }));
-      for (const value of annual) distribution[width.isZero() ? 0 : Math.min(bucketCount - 1, value.sub(low).div(width).floor().toNumber())].count++;
-      return {
-        currency: { code, name: rows[0].currency.name, symbol: rows[0].currency.symbol, decimal_places: decimals },
-        packages: rows.length,
-        totals: { monthlyGross: fixed(total('monthlyGross')), monthlyEmployerContributions: fixed(total('monthlyEmployerContributions')), monthlyEmployeeDeductions: fixed(total('monthlyEmployeeDeductions')), monthlyCtc: fixed(total('monthlyCtc')), annualCtc: fixed(total('annualCtc')) },
-        annualCtc: { average: fixed(total('annualCtc').div(rows.length)), median: fixed(median), min: fixed(low), max: fixed(high) },
-        components: [...components.entries()].map(([code, entry]) => ({ code, name: entry.name, category: entry.category, monthly: fixed(entry.monthly), annual: fixed(entry.annual), oneTime: fixed(entry.oneTime), frequencies: [...entry.frequencies] })).sort((a, b) => Number(b.annual) + Number(b.oneTime) - Number(a.annual) - Number(a.oneTime)),
-        roles: ['admin', 'hr', 'employee'].filter((role) => roles.has(role)).map((role) => ({ role, count: roles.get(role)!.count, averageAnnualCtc: fixed(roles.get(role)!.annual.div(roles.get(role)!.count)) })),
-        distribution,
-      };
-    });
-    const covered = new Set(active.map((row) => row.employee_id));
-    return { headcount: employees.length, withActivePackage: covered.size, withoutActivePackage: employees.length - covered.size, drafts, pending, currencies };
   }
 
   @Get('currencies')
@@ -340,53 +284,6 @@ export class CompensationController {
   async employees(@Req() request: RequestWithCookie) {
     const actor = await this.actor(request, 'read');
     return this.prisma.employee.findMany({ where: { organizationId: actor.organizationId }, select: { id: true, displayName: true, organizationId: true }, orderBy: { displayName: 'asc' } });
-  }
-
-  // Paginated directory for the management screen: search, filter by role/status, sort.
-  @Get('employees/directory')
-  async directory(@Req() request: RequestWithCookie & { query?: Record<string, string | undefined> }) {
-    const actor = await this.actor(request, 'read');
-    const query = request.query ?? {};
-    const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
-    const pageSize = Math.min(100, Math.max(5, Number.parseInt(query.pageSize ?? '10', 10) || 10));
-    const search = (query.q ?? '').trim().toLowerCase().slice(0, 100);
-    const role = ['admin', 'hr', 'employee'].includes(query.role ?? '') ? query.role : undefined;
-    const status = ['active', 'none', 'draft', 'pending'].includes(query.status ?? '') ? query.status : undefined;
-    const sort = ['name', 'ctc-desc', 'ctc-asc', 'effective'].includes(query.sort ?? '') ? query.sort! : 'name';
-
-    const employees = await this.prisma.employee.findMany({
-      where: { organizationId: actor.organizationId },
-      select: {
-        id: true, displayName: true,
-        user: { select: { email: true, member: { select: { role: true } } } },
-        compensation: { where: { status: { in: ['ACTIVE', 'DRAFT', 'PENDING_APPROVAL'] } }, include: { currency: true, items: { include: { definition: true } } } },
-      },
-    });
-    let rows = employees.map((employee) => {
-      const active = employee.compensation.find((row) => row.status === 'ACTIVE');
-      const summary = active ? this.withSummary(active).summary : null;
-      return {
-        id: employee.id, displayName: employee.displayName, email: employee.user.email, role: employee.user.member?.role ?? 'employee',
-        drafts: employee.compensation.filter((row) => row.status === 'DRAFT').length,
-        pending: employee.compensation.filter((row) => row.status === 'PENDING_APPROVAL').length,
-        active: active && summary ? { currency: { code: active.currency.code, name: active.currency.name, symbol: active.currency.symbol, decimal_places: active.currency.decimal_places }, effectiveFrom: active.effective_from, annualCtc: summary.annualCtc, monthlyGross: summary.monthlyGross } : null,
-      };
-    });
-    const counts = { all: rows.length, active: rows.filter((row) => row.active).length, none: rows.filter((row) => !row.active).length, draft: rows.filter((row) => row.drafts > 0).length, pending: rows.filter((row) => row.pending > 0).length };
-    if (search) rows = rows.filter((row) => row.displayName.toLowerCase().includes(search) || row.email.toLowerCase().includes(search));
-    if (role) rows = rows.filter((row) => row.role === role);
-    if (status === 'active') rows = rows.filter((row) => row.active);
-    if (status === 'none') rows = rows.filter((row) => !row.active);
-    if (status === 'draft') rows = rows.filter((row) => row.drafts > 0);
-    if (status === 'pending') rows = rows.filter((row) => row.pending > 0);
-    const ctc = (row: typeof rows[number]) => row.active ? Number(row.active.annualCtc) : -1;
-    rows.sort((a, b) => sort === 'ctc-desc' ? ctc(b) - ctc(a) : sort === 'ctc-asc' ? ctc(a) - ctc(b)
-      : sort === 'effective' ? (b.active?.effectiveFrom.valueOf() ?? 0) - (a.active?.effectiveFrom.valueOf() ?? 0)
-      : a.displayName.localeCompare(b.displayName));
-    const total = rows.length;
-    const pages = Math.max(1, Math.ceil(total / pageSize));
-    const current = Math.min(page, pages);
-    return { items: rows.slice((current - 1) * pageSize, current * pageSize), page: current, pageSize, total, pages, counts };
   }
 
   @Get('employees/:employeeId/compensation')

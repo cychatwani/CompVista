@@ -16,7 +16,7 @@ function flagsOf(actor: WorkflowActor): WorkflowFlags | null {
 }
 
 /** Whether the actor may create or edit a package for this employee (by employee's user id). */
-export function canPropose(actor: WorkflowActor, employeeUserId: string): boolean {
+export function canPropose(actor: WorkflowActor, employeeUserId: string | null): boolean {
   const flags = flagsOf(actor);
   if (!flags) return false;
   return employeeUserId === actor.userId ? flags.canProposeOwnComp : flags.canProposeOthersComp;
@@ -29,7 +29,7 @@ export function submissionOutcome(actor: WorkflowActor): 'ACTIVE' | 'PENDING_APP
 }
 
 /** Whether the actor may approve or reject a pending package. */
-export function canApprove(actor: WorkflowActor, employeeUserId: string, submittedBy: string | null): boolean {
+export function canApprove(actor: WorkflowActor, employeeUserId: string | null, submittedBy: string | null): boolean {
   const flags = flagsOf(actor);
   if (!flags?.canApproveComp) return false;
   if (employeeUserId === actor.userId && !flags.canApproveOwnComp) return false;

@@ -27,7 +27,7 @@ test('compensation package writes, isolation, conflicts, and immutable history o
     for (const code of ['BASIC', 'HRA', 'SPECIAL', 'EMPLOYER_PF', 'EMPLOYEE_PF']) assert.ok(seeded.some((item) => item.code === code));
     await prisma.user.create({ data: { id: userId, name: 'Compensation Test', email: `${suffix}@example.test`, updatedAt: new Date() } });
     await prisma.organization.createMany({ data: [{ id: orgA, name: 'Comp Test A', slug: orgA, createdAt: new Date() }, { id: orgB, name: 'Comp Test B', slug: orgB, createdAt: new Date() }] });
-    await prisma.employee.create({ data: { id: employeeId, userId, organizationId: orgA, displayName: 'Comp Test Employee' } });
+    await prisma.employee.create({ data: { id: employeeId, userId, organizationId: orgA, displayName: 'Comp Test Employee', countryCode: 'IN' } });
     await prisma.compensation_component_definition.createMany({ data: [
       { id: basicId, organization_id: orgA, code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
       { id: inactiveId, organization_id: orgA, code: 'INACTIVE', name: 'Inactive', category: 'EARNING', is_active: false },

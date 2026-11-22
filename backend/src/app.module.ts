@@ -9,6 +9,8 @@ import { TotpController } from './totp.controller.js';
 import { CompensationController } from './compensation.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { CompensationSchedulerService } from './compensation-scheduler.service.js';
+import { AnalyticsController } from './analytics.controller.js';
+import { WorkforceController } from './workforce.controller.js';
 
 @Module({
   imports: [
@@ -26,7 +28,7 @@ import { CompensationSchedulerService } from './compensation-scheduler.service.j
     }),
     PrismaModule,
   ],
-  controllers: [HelloController, AccessController, EmailOtpController, TotpController, CompensationController],
+  controllers: [HelloController, AccessController, EmailOtpController, TotpController, CompensationController, AnalyticsController, WorkforceController],
   providers: [EmailService, EmailOtpService, CompensationController, CompensationSchedulerService],
 })
 export class AppModule {}
