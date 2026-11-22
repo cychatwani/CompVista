@@ -17,6 +17,7 @@ test('compensation package writes, isolation, conflicts, and immutable history o
   const employeeId = `comp-test-employee-${suffix}`;
   const basicId = randomUUID();
   const otherId = randomUUID();
+  const inactiveId = randomUUID();
   const request = { headers: {} };
   const asOrg = (organizationId: string) => { (controller as unknown as { actor: () => Promise<{ userId: string; organizationId: string }> }).actor = async () => ({ userId, organizationId }); };
   try {
@@ -29,8 +30,11 @@ test('compensation package writes, isolation, conflicts, and immutable history o
     await prisma.employee.create({ data: { id: employeeId, userId, organizationId: orgA, displayName: 'Comp Test Employee' } });
     await prisma.compensation_component_definition.createMany({ data: [
       { id: basicId, organization_id: orgA, code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
+      { id: inactiveId, organization_id: orgA, code: 'INACTIVE', name: 'Inactive', category: 'EARNING', is_active: false },
       { id: otherId, organization_id: orgB, code: 'OTHER', name: 'Other', category: 'EARNING' },
     ] });
+    await assert.rejects(() => prisma.compensation_component_definition.update({ where: { id: basicId }, data: { code: 'RENAMED' } }));
+    await assert.rejects(() => prisma.compensation_component_definition.update({ where: { id: basicId }, data: { is_active: false } }));
     asOrg(orgA);
     const rules = [{ componentDefinitionId: basicId, calculationType: 'FIXED' as const, fixedAmount: '10000' }];
     const draft = await controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2026-01-01', status: 'DRAFT', items: rules });
@@ -51,6 +55,7 @@ test('compensation package writes, isolation, conflicts, and immutable history o
     await assert.rejects(() => controller.current(request, employeeId), NotFoundException);
     asOrg(orgA);
     await assert.rejects(() => controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2026-01-01', status: 'DRAFT', items: [...rules, { componentDefinitionId: otherId, calculationType: 'FIXED', fixedAmount: '1' }] }));
+    await assert.rejects(() => controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2026-01-01', status: 'DRAFT', items: [...rules, { componentDefinitionId: inactiveId, calculationType: 'FIXED', fixedAmount: '1' }] }));
     assert.equal(await prisma.employee_compensation.count({ where: { employee_id: employeeId } }), 1);
     await controller.deleteDraft(request, id, { version: 2 });
     assert.equal(await prisma.employee_compensation_item.count({ where: { compensation_id: id } }), 0);
