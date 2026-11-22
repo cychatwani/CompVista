@@ -33,7 +33,7 @@ export function LoginFormShell() {
       const result = await response.json();
       if (!response.ok) { setSignInError(result.error ?? "Sign in failed"); return; }
       const destinations: Record<string, string> = { RESET_PASSWORD: "/login/reset-password", VERIFY_EMAIL: "/login/verify-email", SETUP_TOTP: "/login/setup-totp", VERIFY_TOTP: "/login/verify", AUTHENTICATED: "/app" };
-      if (result.nextStep === "RESET_PASSWORD") rememberLoginPassword(values.password);
+      if (["RESET_PASSWORD", "VERIFY_EMAIL", "SETUP_TOTP"].includes(result.nextStep)) rememberLoginPassword(values.password);
       router.push(destinations[result.nextStep] ?? "/login");
     } catch { setSignInError("Sign in is temporarily unavailable"); }
   };

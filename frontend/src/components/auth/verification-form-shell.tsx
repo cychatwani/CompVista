@@ -6,6 +6,21 @@ import { AuthLayout } from "./auth-layout";
 
 export function VerificationFormShell() {
   const [code, setCode] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  async function verify(event: React.FormEvent) {
+    event.preventDefault();
+    if (code.length !== 6 || pending) return;
+    setPending(true); setError("");
+    try {
+      const response = await fetch("/api/totp/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+      const result = await response.json();
+      if (!response.ok) { setError(result.error ?? "Invalid code"); return; }
+      window.location.assign("/app");
+    } catch { setError("Verification is temporarily unavailable"); }
+    finally { setPending(false); }
+  }
 
   return (
     <AuthLayout>
@@ -15,7 +30,7 @@ export function VerificationFormShell() {
         <p className="mt-3 text-sm leading-6 text-[var(--muted-text)]" id="verification-description">Open your authenticator app and enter the 6-digit code to continue.</p>
       </div>
 
-      <form className="mt-8 space-y-5" aria-labelledby="verification-title" onSubmit={(event) => event.preventDefault()}>
+      <form className="mt-8 space-y-5" aria-labelledby="verification-title" onSubmit={verify}>
         <div>
           <label className="mb-2 block text-sm font-medium" htmlFor="authenticator-code">Authenticator code</label>
           <OTPInput
@@ -42,7 +57,8 @@ export function VerificationFormShell() {
           />
         </div>
 
-        <button className="flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[var(--deep-teal)] px-4 font-semibold text-white transition-colors hover:bg-[var(--teal)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--deep-teal)]" type="submit" disabled={code.length !== 6}>
+        {error && <p role="alert" className="text-sm font-medium text-red-600">{error}</p>}
+        <button className="flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[var(--deep-teal)] px-4 font-semibold text-white transition-colors hover:bg-[var(--teal)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--deep-teal)]" type="submit" disabled={code.length !== 6 || pending}>
           Verify &amp; continue
           <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
         </button>

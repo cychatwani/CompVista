@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/login/reset-password" });
 Object.assign(globalThis, { window: dom.window, self: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle, requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(callback, 0), IS_REACT_ACT_ENVIRONMENT: true });
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
@@ -9,10 +10,12 @@ const { render, screen, cleanup, waitFor } = await import("@testing-library/reac
 const { default: userEvent } = await import("@testing-library/user-event");
 const { default: ResetPasswordPage } = await import("../src/app/login/reset-password/page");
 const { rememberLoginPassword, forgetLoginPassword } = await import("../src/components/auth/login-password-memory");
+const router = { push() {}, replace() {}, refresh() {}, prefetch() {}, back() {}, forward() {} };
+const page = () => createElement(AppRouterContext.Provider, { value: router as never }, createElement(ResetPasswordPage));
 test("requirements react to typing and matching confirmation enables submit", async () => {
   const user = userEvent.setup();
   rememberLoginPassword("temporary");
-  render(createElement(ResetPasswordPage));
+  render(page());
   const button = screen.getByRole("button", { name: "Change password" }) as HTMLButtonElement;
   assert.equal(button.disabled, true);
   assert.equal(screen.queryByLabelText("Current password"), null);
@@ -37,7 +40,7 @@ test("submit shows a loader and blocks another request", async () => {
   let calls = 0;
   globalThis.fetch = async () => { calls++; return new Promise<Response>((resolve) => { finish = resolve; }); };
   try {
-    render(createElement(ResetPasswordPage));
+    render(page());
     await user.type(screen.getByLabelText("New password"), "StrongPass123!");
     await user.type(screen.getByLabelText("Confirm password"), "StrongPass123!");
     await user.click(screen.getByRole("button", { name: "Change password" }));

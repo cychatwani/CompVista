@@ -5,6 +5,7 @@ import { AccessController } from './access.controller.js';
 import { EmailService } from './email.service.js';
 import { EmailOtpService } from './email-otp.service.js';
 import { EmailOtpController } from './email-otp.controller.js';
+import { TotpController } from './totp.controller.js';
 import { CompensationController } from './compensation.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 
@@ -24,7 +25,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     }),
     PrismaModule,
   ],
-  controllers: [HelloController, AccessController, EmailOtpController, CompensationController],
+  controllers: [HelloController, AccessController, EmailOtpController, TotpController, CompensationController],
   providers: [EmailService, EmailOtpService],
 })
 export class AppModule {}

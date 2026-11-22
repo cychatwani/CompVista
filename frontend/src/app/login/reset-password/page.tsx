@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AuthLayout } from "@/components/auth/auth-layout";
 import { AsyncSubmitButton } from "@/components/auth/async-submit-button";
-import { loginPassword, forgetLoginPassword } from "@/components/auth/login-password-memory";
+import { loginPassword, rememberLoginPassword } from "@/components/auth/login-password-memory";
 const rules = [
   ["At least 10 characters", (value: string) => value.length >= 10],
   ["One uppercase letter", (value: string) => /[A-Z]/.test(value)],
@@ -12,6 +13,7 @@ const rules = [
 ] as const;
 const destinations: Record<string, string> = { VERIFY_EMAIL: "/login/verify-email", SETUP_TOTP: "/login/setup-totp", VERIFY_TOTP: "/login/verify", AUTHENTICATED: "/app" };
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   useEffect(() => { const password = loginPassword(); if (password) queueMicrotask(() => setCurrentPassword(password)); else window.location.replace("/login"); }, []);
   const [newPassword, setNewPassword] = useState("");
@@ -31,8 +33,8 @@ export default function ResetPasswordPage() {
       const response = await fetch("/api/mandatory-password-change", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword, confirmPassword }) });
       const result = await response.json();
       if (!response.ok) { setError(result.error ?? "Password change failed"); return; }
-      forgetLoginPassword();
-      window.location.assign(destinations[result.nextStep] ?? "/login");
+      rememberLoginPassword(newPassword);
+      router.push(destinations[result.nextStep] ?? "/login");
     } catch { setError("Password change is temporarily unavailable"); }
     finally { setBusy(false); }
   }

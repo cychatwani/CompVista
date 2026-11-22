@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/login/verify-email" });
 Object.assign(globalThis, { window: dom.window, self: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Event: dom.window.Event, InputEvent: dom.window.InputEvent, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle, requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(callback, 0), IS_REACT_ACT_ENVIRONMENT: true });
@@ -11,6 +12,8 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.
 const { render, screen, waitFor, cleanup } = await import("@testing-library/react");
 const { default: userEvent } = await import("@testing-library/user-event");
 const { default: VerifyEmailPage } = await import("../src/app/login/verify-email/page");
+const router = { push() {}, replace() {}, refresh() {}, prefetch() {}, back() {}, forward() {} };
+const page = () => createElement(AppRouterContext.Provider, { value: router as never }, createElement(VerifyEmailPage));
 
 test("automatically checks delivery, shows email and cooldown, and reports an invalid code", async () => {
   const originalFetch = globalThis.fetch;
@@ -23,7 +26,7 @@ test("automatically checks delivery, shows email and cooldown, and reports an in
   };
   try {
     const user = userEvent.setup();
-    render(createElement(VerifyEmailPage));
+    render(page());
     await waitFor(() => assert.ok(screen.getByText("person@example.com")));
     assert.equal(calls.filter((url) => url.endsWith("/send")).length, 1);
     assert.equal((screen.getByRole("button", { name: /Resend in/ }) as HTMLButtonElement).disabled, true);
@@ -42,7 +45,7 @@ test("an existing active code does not trigger another send on mount", async () 
     return new Response(JSON.stringify({ email: "person@example.com", hasIssuedCode: true, hasActiveCode: true, retryAfterSeconds: 44 }), { status: 200 });
   };
   try {
-    render(createElement(VerifyEmailPage));
+    render(page());
     await waitFor(() => assert.ok(screen.getByText("person@example.com")));
     assert.equal(calls.filter((url) => url.endsWith("/send")).length, 0);
     assert.equal((screen.getByRole("button", { name: /Resend in/ }) as HTMLButtonElement).disabled, true);
@@ -57,7 +60,7 @@ test("an exhausted code never auto-resends on refresh", async () => {
     return new Response(JSON.stringify({ email: "person@example.com", hasIssuedCode: true, hasActiveCode: false, retryAfterSeconds: 0 }), { status: 200 });
   };
   try {
-    render(createElement(VerifyEmailPage));
+    render(page());
     await waitFor(() => assert.ok(screen.getByText(/code is unavailable/i)));
     assert.equal(calls.filter((url) => url.endsWith("/send")).length, 0);
     assert.equal((screen.getByRole("button", { name: "Resend code" }) as HTMLButtonElement).disabled, false);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { OTPInput, REGEXP_ONLY_DIGITS } from "input-otp";
 import { AuthLayout } from "@/components/auth/auth-layout";
 import { AsyncSubmitButton } from "@/components/auth/async-submit-button";
@@ -8,6 +9,7 @@ import { AsyncSubmitButton } from "@/components/auth/async-submit-button";
 const destinations: Record<string, string> = { RESET_PASSWORD: "/login/reset-password", SETUP_TOTP: "/login/setup-totp", VERIFY_TOTP: "/login/verify", AUTHENTICATED: "/app" };
 
 export default function VerifyEmailPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [codeAvailable, setCodeAvailable] = useState(true);
@@ -60,7 +62,7 @@ export default function VerifyEmailPage() {
       const response = await fetch("/api/email-otp/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
       const result = await response.json();
       if (!response.ok) { setError(result.error ?? "Invalid code"); return; }
-      window.location.assign(destinations[result.nextStep] ?? "/login");
+      router.push(destinations[result.nextStep] ?? "/login");
     } catch { setError("Verification is temporarily unavailable"); }
     finally { setVerifying(false); }
   }

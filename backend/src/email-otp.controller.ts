@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Post, Req, UnauthorizedException } from '@nestjs/common';
-import { auth } from './auth.js';
+import { getSessionFromCookie } from './auth-session.js';
 import { EmailOtpService } from './email-otp.service.js';
 import { PrismaService } from './prisma/prisma.service.js';
 
@@ -8,7 +8,7 @@ export class EmailOtpController {
   constructor(private readonly prisma: PrismaService, private readonly otp: EmailOtpService) {}
 
   private async user(request: { headers: { cookie?: string } }) {
-    const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
+    const session = await getSessionFromCookie(request.headers.cookie);
     if (!session?.user) throw new UnauthorizedException();
     const user = await this.prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, email: true, emailVerified: true, mustChangePassword: true, twoFactorEnabled: true } });
     if (!user) throw new UnauthorizedException();

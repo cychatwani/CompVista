@@ -117,7 +117,15 @@ model user {
   session          session[]
   twoFactor        twoFactor[]
   emailVerificationOtp email_verification_otp?
+  totpEnrollmentDecision totp_enrollment_decision?
   createdCompensation employee_compensation[]
+}
+
+model totp_enrollment_decision {
+  userId    String   @id
+  decision  String
+  updatedAt DateTime @default(now()) @db.Timestamptz(6)
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model email_verification_otp {
@@ -258,5 +266,6 @@ model organization_role_permissions {
   canApproveComp       Boolean           @default(false)
   canApproveOwnComp    Boolean           @default(false)
   requiresApproval     Boolean           @default(true)
+  requireTotp          Boolean           @default(false)
   organization_role    organization_role @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
