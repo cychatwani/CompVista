@@ -67,6 +67,8 @@ model organization {
   invitation        invitation[]
   member            member[]
   organization_role organization_role[]
+  compensation_component_definition compensation_component_definition[]
+  employee_compensation employee_compensation[]
 }
 
 model session {
@@ -115,6 +117,7 @@ model user {
   session          session[]
   twoFactor        twoFactor[]
   emailVerificationOtp email_verification_otp?
+  createdCompensation employee_compensation[]
 }
 
 model email_verification_otp {
@@ -146,8 +149,90 @@ model employee {
   createdAt      DateTime     @default(now())
   organization   organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user           user         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  compensation   employee_compensation[]
 
+  @@unique([id, organizationId], map: "employee_id_organization_key")
   @@index([organizationId])
+}
+
+enum compensation_category {
+  EARNING
+  EMPLOYER_CONTRIBUTION
+  EMPLOYEE_DEDUCTION
+}
+
+enum compensation_status {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+}
+
+enum compensation_calculation_type {
+  FIXED
+  PERCENTAGE_OF_BASE
+}
+
+model currency {
+  code String @id @db.Char(3)
+  name String
+  symbol String
+  decimal_places Int @db.SmallInt
+  is_active Boolean @default(true)
+  packages employee_compensation[]
+}
+
+model compensation_component_definition {
+  id String @id @db.Uuid
+  organization_id String
+  code String
+  name String
+  category compensation_category
+  is_basic Boolean @default(false)
+  is_active Boolean @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  organization organization @relation(fields: [organization_id], references: [id], onDelete: Restrict)
+  items employee_compensation_item[]
+
+  @@unique([organization_id, code])
+  @@unique([id, organization_id])
+}
+
+model employee_compensation {
+  id String @id @db.Uuid
+  organization_id String
+  employee_id String
+  currency_code String @db.Char(3)
+  status compensation_status
+  effective_from DateTime @db.Date
+  effective_to DateTime? @db.Date
+  version Int @default(1)
+  created_by String
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  organization organization @relation(fields: [organization_id], references: [id], onDelete: Restrict)
+  employee employee @relation(fields: [employee_id, organization_id], references: [id, organizationId], onDelete: Restrict)
+  currency currency @relation(fields: [currency_code], references: [code], onDelete: Restrict)
+  creator user @relation(fields: [created_by], references: [id], onDelete: Restrict)
+  items employee_compensation_item[]
+
+  @@index([organization_id, employee_id, created_at(sort: Desc)], map: "employee_compensation_employee_idx")
+}
+
+model employee_compensation_item {
+  id String @id @db.Uuid
+  compensation_id String @db.Uuid
+  component_definition_id String @db.Uuid
+  calculation_type compensation_calculation_type
+  fixed_amount Decimal? @db.Decimal(20, 4)
+  percentage Decimal? @db.Decimal(9, 4)
+  resolved_monthly_amount Decimal @db.Decimal(20, 4)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  compensation employee_compensation @relation(fields: [compensation_id], references: [id], onDelete: Cascade)
+  definition compensation_component_definition @relation(fields: [component_definition_id], references: [id], onDelete: Restrict)
+
+  @@unique([compensation_id, component_definition_id])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
