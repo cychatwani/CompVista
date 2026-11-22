@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from './generated/prisma/client.js';
-import { getSessionFromCookie } from './auth-session.js';
-import { loadTotpState, nextAuthStep } from './totp-policy.js';
+import { auth } from './auth.js';
+import { AccessController } from './access.controller.js';
 import { PrismaService } from './prisma/prisma.service.js';
 import { calculateCompensation, CompensationValidationError, summarizeResolvedCompensation, type Rule } from './compensation-calculation.js';
 import { canAccessCompensation } from './compensation-access.js';
@@ -37,10 +37,9 @@ export class CompensationController {
   constructor(private readonly prisma: PrismaService) {}
 
   private async actor(request: RequestWithCookie, kind: 'read' | 'write') {
-    const session = await getSessionFromCookie(request.headers.cookie);
+    await new AccessController(this.prisma).check(request);
+    const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
     if (!session?.user) throw new UnauthorizedException();
-    const state = await loadTotpState(this.prisma, session.user.id);
-    if (!state || nextAuthStep(state) !== 'AUTHENTICATED') throw new ForbiddenException('Complete sign-in requirements first');
     const member = await this.prisma.member.findUnique({ where: { userId: session.user.id }, include: { organization_role: { include: { organization_role_permissions: true } } } });
     if (!canAccessCompensation(member, session.session.activeOrganizationId, kind)) throw new ForbiddenException('Compensation permission required');
     if (!member) throw new ForbiddenException('Organization access denied');
