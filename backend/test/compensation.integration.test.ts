@@ -19,7 +19,7 @@ test('compensation package writes, isolation, conflicts, and immutable history o
   const otherId = randomUUID();
   const inactiveId = randomUUID();
   const request = { headers: {} };
-  const asOrg = (organizationId: string) => { (controller as unknown as { actor: () => Promise<{ userId: string; organizationId: string }> }).actor = async () => ({ userId, organizationId }); };
+  const asOrg = (organizationId: string) => { (controller as unknown as { actor: () => Promise<unknown> }).actor = async () => ({ userId, organizationId, workflow: { role: 'admin', userId, flags: null } }); };
   try {
     const bandwidth = await prisma.organization.findUnique({ where: { slug: 'bandwidth-holdings' } });
     assert.ok(bandwidth, 'Bandwidth Holdings must exist on the validation branch');
@@ -61,15 +61,18 @@ test('compensation package writes, isolation, conflicts, and immutable history o
     assert.equal(await prisma.employee_compensation_item.count({ where: { compensation_id: id } }), 0);
     const active = await controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2026-01-01', status: 'ACTIVE', items: rules });
     assert.equal(active.package?.status, 'ACTIVE');
-    await assert.rejects(() => controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2027-01-01', status: 'ACTIVE', items: rules }), ConflictException);
+    // A future-dated revision waits as the single upcoming package; a second one is refused.
+    const upcoming = await controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2027-01-01', status: 'ACTIVE', items: rules });
+    assert.equal(upcoming.outcome, 'SCHEDULED');
+    await assert.rejects(() => controller.createPackage(request, employeeId, { currencyCode: 'INR', effectiveFrom: '2027-06-01', status: 'ACTIVE', items: rules }), ConflictException);
     await assert.rejects(() => controller.updateDraft(request, active.package!.id, updateBody), ConflictException);
     await assert.rejects(() => controller.deleteDraft(request, active.package!.id, { version: 1 }), ConflictException);
-    assert.equal((await controller.history(request, employeeId)).length, 1);
+    assert.equal((await controller.history(request, employeeId)).length, 2);
     await assert.rejects(() => prisma.employee_compensation_item.update({ where: { id: active.package!.items[0].id }, data: { resolved_monthly_amount: '1' } }));
     await assert.rejects(() => prisma.$transaction(async (tx) => {
       const invalid = await tx.employee_compensation.create({ data: { id: randomUUID(), organization_id: orgA, employee_id: employeeId, currency_code: 'INR', status: 'DRAFT', effective_from: new Date('2027-01-01'), created_by: userId } });
       await tx.employee_compensation_item.create({ data: { id: randomUUID(), compensation_id: invalid.id, component_definition_id: otherId, calculation_type: 'FIXED', fixed_amount: '1', resolved_monthly_amount: '1', resolved_amount: '1', annual_amount: '12' } });
     }));
-    assert.equal(await prisma.employee_compensation.count({ where: { employee_id: employeeId } }), 1);
+    assert.equal(await prisma.employee_compensation.count({ where: { employee_id: employeeId } }), 2);
   } finally { await prisma.$disconnect(); }
 });
