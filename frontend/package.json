@@ -8,16 +8,21 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --import tsx --test tests/login-form.test.mts tests/reset-password.test.mts tests/login-route.test.mts tests/verify-email.test.mts",
+    "test": "node --import tsx --test tests/login-form.test.mts tests/reset-password.test.mts tests/login-route.test.mts tests/verify-email.test.mts tests/domain-route.test.mts",
     "test:browser": "node tests/login-browser.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.7",
+    "@tabler/icons-react": "^3.52.0",
+    "clsx": "^2.1.1",
     "input-otp": "^1.5.0",
+    "motion": "^14.14.0",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-hook-form": "^7.92.0",
+    "react-qr-code": "^2.2.0",
+    "tailwind-merge": "^3.7.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
