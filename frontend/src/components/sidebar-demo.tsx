@@ -49,9 +49,8 @@ export default function SidebarDemo({ title = 'Dashboard', subtitle = 'Your comp
       <Sidebar open={open} setOpen={setOpen} animate={false}>
         <SidebarBody className="w-[248px] bg-[#F4F8F7] px-4 py-6">
           <div className="flex h-full flex-col">
-            <Link href="/app/my-compensation" className="flex h-10 items-center gap-2.5 rounded-lg px-2 focus-visible:outline-2 focus-visible:outline-[var(--deep-teal)]">
-              <Image src="/brand/symbol/svg/compvista-symbol-color.svg" alt="" width={26} height={26} className="shrink-0" priority />
-              <span className="whitespace-nowrap font-[family-name:var(--font-manrope)] text-[17px] font-semibold tracking-[-0.02em] text-[var(--deep-teal)]">CompVista</span>
+            <Link href="/app/my-compensation" aria-label="CompVista home" className="flex h-12 items-center rounded-lg px-1 focus-visible:outline-2 focus-visible:outline-[var(--deep-teal)]">
+              <Image src="/brand/logos/svg/compvista-primary-dark.svg" alt="CompVista" width={922} height={176} className="h-auto w-[184px]" priority />
             </Link>
             <nav aria-label="Workspace navigation" className="mt-10 flex flex-1 flex-col gap-1">
               {items.map(({ href, label, icon: Icon, exact }) => {

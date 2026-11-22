@@ -80,10 +80,7 @@ export function ProvisionForm() {
 
   return <main className="min-h-dvh bg-[var(--mist)] px-5 py-10 sm:py-16">
     <div className="mx-auto w-full max-w-3xl">
-      <div className="flex items-center gap-2.5">
-        <Image src="/brand/symbol/svg/compvista-symbol-color.svg" alt="" width={28} height={28} priority />
-        <span className="font-[family-name:var(--font-manrope)] text-lg font-semibold tracking-[-0.02em] text-[var(--deep-teal)]">CompVista</span>
-      </div>
+      <Image src="/brand/logos/svg/compvista-primary-dark.svg" alt="CompVista" width={922} height={176} className="h-auto w-[220px]" priority />
       <h1 className="mt-10 text-balance font-[family-name:var(--font-manrope)] text-[32px] font-semibold leading-tight tracking-[-0.025em] text-[var(--charcoal)]">Create an organization</h1>
       <p className="mt-2 max-w-[60ch] text-[15px] leading-relaxed text-[var(--muted-text)]">Every person gets a login. Admins and HR manage compensation; employees see only their own. You download a CSV of temporary passwords. Each person changes theirs and verifies their email at first sign-in.</p>
 
