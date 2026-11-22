@@ -12,7 +12,7 @@ import { defaultComponentCatalog } from './seed-plan.js';
 import {
   cellKey, departmentCatalog, packageEffectiveFrom, profileForRole, rosterCodePattern, workforceComponents, workforcePlan, workforceTarget,
   type CountryCode, type DepartmentCode, type PlannedEmployee,
-} from './workforce-plan.js';
+} from '../src/workforce-plan.js';
 
 config({ path: process.env.COMPVISTA_ENV_FILE ?? '.env' });
 if (process.env.NODE_ENV === 'production') throw new Error('Refusing development seed in production mode');

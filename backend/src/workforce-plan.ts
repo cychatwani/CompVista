@@ -1,5 +1,5 @@
-// Deterministic plan for the 10,000-person demo workforce. Pure: no database access, so the
-// same inputs always produce the same people, attributes, and package rules.
+// Deterministic workforce plan used by the demo seed and by organization provisioning. Pure: no
+// database access, so the same inputs always produce the same people, attributes, and packages.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -12,6 +12,20 @@ export const countryCodes = ['IN', 'US', 'GB', 'DE', 'AE', 'SG'] as const;
 export type CountryCode = typeof countryCodes[number];
 export const countryCurrency: Record<CountryCode, string> = { IN: 'INR', US: 'USD', GB: 'GBP', DE: 'EUR', AE: 'AED', SG: 'SGD' };
 export const countryTargets: Record<CountryCode, number> = { IN: 5000, US: 1500, GB: 1000, DE: 1000, AE: 800, SG: 700 };
+
+/** Scales a 10,000-person target table to `total` people with largest-remainder rounding (exact sum). */
+export function scaleTargets<K extends string>(targets: Record<K, number>, total: number): Record<K, number> {
+  const keys = Object.keys(targets) as K[];
+  const base = keys.reduce((sum, key) => sum + targets[key], 0);
+  const raw = keys.map((key) => ({ key, value: (targets[key] * total) / base }));
+  const result = Object.fromEntries(raw.map(({ key, value }) => [key, Math.floor(value)])) as Record<K, number>;
+  let missing = total - keys.reduce((sum, key) => sum + result[key], 0);
+  for (const { key } of [...raw].sort((a, b) => (b.value % 1) - (a.value % 1) || keys.indexOf(a.key) - keys.indexOf(b.key))) {
+    if (missing <= 0) break;
+    result[key]++; missing--;
+  }
+  return result;
+}
 
 export const departmentCatalog = [
   { code: 'ENGINEERING', name: 'Engineering', description: 'Builds and runs the CompVista platform.' },
@@ -85,14 +99,16 @@ export const cellKey = (cell: Cell) => `${cell.country}:${cell.department}`;
  * Integer country × department headcounts whose rows and columns hit the targets exactly:
  * iterative proportional fitting on the affinity table, then controlled rounding.
  */
-export function distributionMatrix(): Map<string, number> {
+export function distributionMatrix(total = workforceTarget): Map<string, number> {
+  const countries = scaleTargets(countryTargets, total);
+  const departments = scaleTargets(departmentTargets, total);
   const fitted = countryCodes.map((country) => departmentCodes.map((department) => affinity[country][department]));
-  const rowTargets = countryCodes.map((country) => countryTargets[country]);
-  const columnTargets = departmentCodes.map((department) => departmentTargets[department]);
+  const rowTargets = countryCodes.map((country) => countries[country]);
+  const columnTargets = departmentCodes.map((department) => departments[department]);
   if (rowTargets.reduce((a, b) => a + b) !== columnTargets.reduce((a, b) => a + b)) throw new Error('Country and department targets disagree');
   for (let iteration = 0; iteration < 200; iteration++) {
-    fitted.forEach((row, r) => { const sum = row.reduce((a, b) => a + b); row.forEach((_, c) => { row[c] *= rowTargets[r] / sum; }); });
-    columnTargets.forEach((target, c) => { const sum = fitted.reduce((total, row) => total + row[c], 0); fitted.forEach((row) => { row[c] *= target / sum; }); });
+    fitted.forEach((row, r) => { const sum = row.reduce((a, b) => a + b); row.forEach((_, c) => { row[c] = sum ? row[c] * rowTargets[r] / sum : 0; }); });
+    columnTargets.forEach((target, c) => { const sum = fitted.reduce((acc, row) => acc + row[c], 0); fitted.forEach((row) => { row[c] = sum ? row[c] * target / sum : 0; }); });
   }
   const counts = fitted.map((row) => row.map(Math.floor));
   const rowNeed = rowTargets.map((target, r) => target - counts[r].reduce((a, b) => a + b));
@@ -163,8 +179,8 @@ const slug = (value: string) => value.normalize('NFKD').replace(/[^\p{L}\p{N}]+/
  * The generated roster. `occupied` counts people who already exist outside the roster (seeded
  * login accounts, manual entries) per cell, so roster plus existing people match the targets.
  */
-export function workforcePlan(occupied: Map<string, number>, emailDomain: string): PlannedEmployee[] {
-  const matrix = distributionMatrix();
+export function workforcePlan(occupied: Map<string, number>, emailDomain: string, options: { total?: number; emailPrefix?: string } = {}): PlannedEmployee[] {
+  const matrix = distributionMatrix(options.total ?? workforceTarget);
   const slots: Cell[] = [];
   for (const country of countryCodes) for (const department of departmentCodes) {
     const key = cellKey({ country, department });
@@ -191,7 +207,7 @@ export function workforcePlan(occupied: Map<string, number>, emailDomain: string
     const statusRoll = next();
     const employmentStatus = statusRoll < 0.02 ? 'ON_LEAVE' : statusRoll < 0.03 ? 'NOTICE_PERIOD' : hired >= new Date(Date.UTC(2025, 9, 1)) ? 'PROBATION' : 'ACTIVE';
     return {
-      code: `CV-${sequence}`, displayName: `${first} ${last}`, email: `${slug(first)}.${slug(last)}.${sequence}@${emailDomain}`,
+      code: `CV-${sequence}`, displayName: `${first} ${last}`, email: `${options.emailPrefix ? `${options.emailPrefix}.` : ''}${slug(first)}.${slug(last)}.${sequence}@${emailDomain}`.toLowerCase(),
       country, department, level, jobTitle: titles[department][level], employmentStatus, hireDate: hired.toISOString().slice(0, 10),
       currency: countryCurrency[country], targetAnnualCtc, rules: packageRules(country, level, targetAnnualCtc, next),
     };
@@ -212,3 +228,19 @@ export const profileForRole: Record<'admin' | 'hr' | 'employee', { department: D
   hr: { department: 'HUMAN_RESOURCES', level: 'SENIOR', jobTitle: 'Senior HR Business Partner' },
   employee: { department: 'ENGINEERING', level: 'MID', jobTitle: 'Software Engineer' },
 };
+
+/** The standard component catalog every organization starts with. */
+export const defaultComponentCatalog = [
+  { code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
+  { code: 'HRA', name: 'House Rent Allowance', category: 'EARNING', is_basic: false },
+  { code: 'SPECIAL', name: 'Special Allowance', category: 'EARNING', is_basic: false },
+  { code: 'EMPLOYER_PF', name: 'Employer PF', category: 'EMPLOYER_CONTRIBUTION', is_basic: false },
+  { code: 'EMPLOYEE_PF', name: 'Employee PF', category: 'EMPLOYEE_DEDUCTION', is_basic: false },
+] as const;
+
+/** Default permission flags per application role. */
+export const defaultPermissions = {
+  admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
+  hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
+  employee: { canViewAllComp: false, canViewOwnComp: true, canProposeOthersComp: false, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
+} as const;

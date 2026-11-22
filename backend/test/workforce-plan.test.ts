@@ -4,7 +4,7 @@ import { calculateCompensation } from '../src/compensation-calculation.js';
 import {
   cellKey, countryCodes, countryCurrency, countryTargets, departmentCodes, departmentTargets, distributionMatrix, workforcePlan, workforceTarget,
   workforceComponents, type CountryCode,
-} from '../scripts/workforce-plan.js';
+} from '../src/workforce-plan.js';
 import { defaultComponentCatalog } from '../scripts/seed-plan.js';
 
 const existing = new Map([[cellKey({ country: 'IN', department: 'ENGINEERING' }), 5], [cellKey({ country: 'IN', department: 'HUMAN_RESOURCES' }), 4]]);

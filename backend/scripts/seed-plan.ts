@@ -3,11 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export type SeedRole = 'admin' | 'hr' | 'employee';
-export const defaultPermissions = {
-  admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
-  hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
-  employee: { canViewAllComp: false, canViewOwnComp: true, canProposeOthersComp: false, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
-} as const;
+import { defaultComponentCatalog, defaultPermissions } from '../src/workforce-plan.js';
+export { defaultComponentCatalog, defaultPermissions };
 export type PermissionFlags = { [K in keyof typeof defaultPermissions.admin]: boolean };
 export type PlannedPerson = { email: string; name: string; role: SeedRole; generated: boolean };
 export type SeedPlan = { organization: { name: string; slug: string }; people: PlannedPerson[]; roles: Partial<Record<SeedRole, { displayName?: string; permissions?: Partial<PermissionFlags> }>> };
@@ -97,13 +94,6 @@ export function loadSeedPlan(file: string): SeedPlan {
   return parseSeedPlan(JSON.parse(readFileSync(resolve(file), 'utf8')) as unknown);
 }
 
-export const defaultComponentCatalog = [
-  { code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
-  { code: 'HRA', name: 'House Rent Allowance', category: 'EARNING', is_basic: false },
-  { code: 'SPECIAL', name: 'Special Allowance', category: 'EARNING', is_basic: false },
-  { code: 'EMPLOYER_PF', name: 'Employer PF', category: 'EMPLOYER_CONTRIBUTION', is_basic: false },
-  { code: 'EMPLOYEE_PF', name: 'Employee PF', category: 'EMPLOYEE_DEDUCTION', is_basic: false },
-] as const;
 export type CatalogCode = typeof defaultComponentCatalog[number]['code'];
 export type PlannedRule = { code: CatalogCode; calculationType: 'FIXED' | 'PERCENTAGE_OF_BASE'; fixedAmount: string | null; percentage: string | null };
 
