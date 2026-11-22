@@ -29,3 +29,23 @@ Definitions carry a `default_frequency` (Basic is always MONTHLY; deductions are
 ## Approvals queue
 
 Members with `canApproveComp` (admins always) see **Approvals** in the sidebar with a pending count from `GET /me/capabilities`. `GET /compensation/approvals` lists every PENDING_APPROVAL package with the package it would replace and whether the caller may decide it. Approve and reject use the existing `/compensation/:id/approve` and `/reject` endpoints, which now require approval access rather than organization-wide view access.
+
+## Upcoming packages (V16, V17)
+
+An applied package dated after today is `SCHEDULED` (shown as Upcoming) and the current package stays `ACTIVE`. A timer in the backend promotes due packages at local midnight and once at startup. Each employee has at most one upcoming package; only approvers may cancel it. Returned drafts carry per-item approver feedback in `change_requests` (V18).
+
+## Organizational structure (V19)
+
+- `country` is global reference data (ISO 3166-1 alpha-2 code, name, default currency). The database stores codes; flags are drawn by the frontend.
+- `department` belongs to one organization. Employees reference it through a composite key `(departmentId, organizationId)`, so a department from another organization is rejected by the database.
+- An employee's country sets the **default** currency for new packages only. Package currency stays an explicit property of each package and is never rewritten.
+- `employee.userId` is optional: most of a large workforce exists as domain records without logins.
+
+## Analytics (`GET /compensation/analytics`)
+
+- Aggregated in PostgreSQL. Each active package is grouped once (one row per package) before any further join, so item rows never multiply totals.
+- Annual CTC = Σ `annual_amount` of earnings and employer contributions. `annual_amount` already applies payment frequency (one-time items are 0), so this matches `compensation-calculation.ts`. Employee deductions are reported separately and never add to CTC.
+- **No cross-currency sums.** Monetary figures appear only when exactly one currency is in scope, either selected or the only one present. Otherwise the response carries per-currency totals and `requiresCurrency: true`. Nothing is converted.
+- Average and median are over employee-level CTC. The median averages the two middle values for an even count.
+- Department and country breakdowns ignore their own filter so the selected item stays in context (highlighted). The department × country matrix covers the whole organization.
+- Access uses the existing organization-wide read permission; employees are refused by the backend.
