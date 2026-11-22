@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 
 const url = process.env.COMPVISTA_COMP_TEST_URL;
 test('compensation package writes, isolation, conflicts, and immutable history on a Flyway-migrated validation branch', { skip: !url }, async () => {
@@ -37,14 +37,16 @@ test('compensation package writes, isolation, conflicts, and immutable history o
     assert.equal(draft.package?.status, 'DRAFT');
     assert.equal(draft.calculation.annualCtc, '120000.00');
     const id = draft.package!.id;
-    const updateBody = { currencyCode: 'INR', effectiveFrom: '2026-01-01', version: 1, items: [{ ...rules[0], fixedAmount: '12000' }] };
+    const updateBody = { currencyCode: 'INR', effectiveFrom: '2026-01-01', effectiveTo: '2026-12-31', version: 1, items: [{ ...rules[0], fixedAmount: '12000' }] };
     const updates = await Promise.allSettled([controller.updateDraft(request, id, updateBody), controller.updateDraft(request, id, updateBody)]);
     assert.equal(updates.filter((result) => result.status === 'fulfilled').length, 1);
     assert.equal(updates.filter((result) => result.status === 'rejected').length, 1);
     assert.ok((updates.find((result) => result.status === 'rejected') as PromiseRejectedResult).reason instanceof ConflictException);
     const updated = await prisma.employee_compensation.findUniqueOrThrow({ where: { id }, include: { items: true } });
     assert.equal(updated.version, 2);
+    assert.equal(updated.effective_to?.toISOString().slice(0, 10), '2026-12-31');
     assert.equal(updated.items[0].resolved_monthly_amount.toString(), '12000');
+    await assert.rejects(() => controller.updateDraft(request, id, { ...updateBody, effectiveTo: '2025-12-31', version: 2 }), BadRequestException);
     asOrg(orgB);
     await assert.rejects(() => controller.current(request, employeeId), NotFoundException);
     asOrg(orgA);

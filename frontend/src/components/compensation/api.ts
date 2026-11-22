@@ -2,7 +2,7 @@ export type Currency = { code: string; name: string; symbol: string; decimal_pla
 export type Definition = { id: string; code: string; name: string; category: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION'; is_basic: boolean; is_active: boolean };
 export type Item = { id: string; component_definition_id: string; calculation_type: 'FIXED' | 'PERCENTAGE_OF_BASE'; fixed_amount: string | null; percentage: string | null; resolved_monthly_amount: string; definition: Definition };
 export type Summary = { monthlyGross: string; monthlyEmployerContributions: string; monthlyEmployeeDeductions: string; monthlyCtc: string; annualCtc: string };
-export type Package = { id: string; status: 'DRAFT' | 'ACTIVE' | 'SUPERSEDED'; currency_code: string; effective_from: string; version: number; items: Item[]; summary: Summary };
+export type Package = { id: string; status: 'DRAFT' | 'ACTIVE' | 'SUPERSEDED'; currency_code: string; effective_from: string; effective_to: string | null; version: number; items: Item[]; summary: Summary };
 export type EmployeeRecord = { id: string; displayName: string; organizationId: string; organization?: { name: string } };
 
 export async function domain<T>(path: string, init?: RequestInit): Promise<T> {

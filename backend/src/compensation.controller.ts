@@ -8,7 +8,7 @@ import { calculateCompensation, CompensationValidationError, summarizeResolvedCo
 import { canAccessCompensation } from './compensation-access.js';
 
 type RequestWithCookie = { headers: { cookie?: string } };
-type PackageBody = { currencyCode?: string; effectiveFrom?: string; status?: 'DRAFT' | 'ACTIVE'; items?: Rule[]; version?: number };
+type PackageBody = { currencyCode?: string; effectiveFrom?: string; effectiveTo?: string | null; status?: 'DRAFT' | 'ACTIVE'; items?: Rule[]; version?: number };
 type ComponentBody = { code?: string; name?: string; category?: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION'; isBasic?: boolean; isActive?: boolean };
 
 function validDate(value: unknown): Date {
@@ -16,6 +16,12 @@ function validDate(value: unknown): Date {
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value) throw new BadRequestException('Invalid effectiveFrom date');
   return date;
+}
+function validEndDate(value: unknown, start: Date): Date | null {
+  if (value == null || value === '') return null;
+  const end = validDate(value);
+  if (end < start) throw new BadRequestException('effectiveTo must be on or after effectiveFrom');
+  return end;
 }
 function mapError(error: unknown): never {
   if (error instanceof CompensationValidationError) throw new BadRequestException(error.message);
@@ -135,12 +141,13 @@ export class CompensationController {
     await this.employee(employeeId, actor.organizationId);
     if (body?.status !== 'DRAFT' && body?.status !== 'ACTIVE') throw new BadRequestException('Status must be DRAFT or ACTIVE');
     const effectiveFrom = validDate(body.effectiveFrom);
+    const effectiveTo = validEndDate(body.effectiveTo, effectiveFrom);
     const result = await this.calculate(actor.organizationId, body);
     try {
       const id = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM employee WHERE id = ${employeeId} FOR UPDATE`;
         if (body.status === 'ACTIVE' && await tx.employee_compensation.count({ where: { employee_id: employeeId, status: { in: ['ACTIVE', 'SUPERSEDED'] } } })) throw new ConflictException('Initial activation requires no applied compensation history');
-        const packageRow = await tx.employee_compensation.create({ data: { id: randomUUID(), organization_id: actor.organizationId, employee_id: employeeId, currency_code: result.currencyCode, status: 'DRAFT', effective_from: effectiveFrom, created_by: actor.userId } });
+        const packageRow = await tx.employee_compensation.create({ data: { id: randomUUID(), organization_id: actor.organizationId, employee_id: employeeId, currency_code: result.currencyCode, status: 'DRAFT', effective_from: effectiveFrom, effective_to: effectiveTo, created_by: actor.userId } });
         await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: packageRow.id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount ?? null, percentage: item.percentage ?? null, resolved_monthly_amount: item.resolvedMonthlyAmount })) });
         if (body.status === 'ACTIVE') await tx.employee_compensation.update({ where: { id: packageRow.id }, data: { status: 'ACTIVE', updated_at: new Date() } });
         return packageRow.id;
@@ -158,10 +165,11 @@ export class CompensationController {
     if (!existing) throw new NotFoundException('Compensation package not found');
     if (existing.status !== 'DRAFT') throw new ConflictException('Applied compensation is immutable');
     const effectiveFrom = validDate(body.effectiveFrom);
+    const effectiveTo = validEndDate(body.effectiveTo, effectiveFrom);
     const result = await this.calculate(actor.organizationId, body);
     try {
       await this.prisma.$transaction(async (tx) => {
-        const updated = await tx.employee_compensation.updateMany({ where: { id, organization_id: actor.organizationId, status: 'DRAFT', version: body.version }, data: { currency_code: result.currencyCode, effective_from: effectiveFrom, version: { increment: 1 }, updated_at: new Date() } });
+        const updated = await tx.employee_compensation.updateMany({ where: { id, organization_id: actor.organizationId, status: 'DRAFT', version: body.version }, data: { currency_code: result.currencyCode, effective_from: effectiveFrom, effective_to: effectiveTo, version: { increment: 1 }, updated_at: new Date() } });
         if (updated.count !== 1) throw new ConflictException('Draft version changed; reload before saving');
         await tx.employee_compensation_item.deleteMany({ where: { compensation_id: id } });
         await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount ?? null, percentage: item.percentage ?? null, resolved_monthly_amount: item.resolvedMonthlyAmount })) });
