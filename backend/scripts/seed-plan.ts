@@ -83,6 +83,9 @@ export function parseSeedPlan(value: unknown): SeedPlan {
         if (!(flag in defaultPermissions.admin) || typeof enabled !== 'boolean') throw new Error(`Invalid boolean permission roles.${key}.permissions.${flag}`);
         (flags as Record<string, boolean>)[flag] = enabled;
       }
+      if (key === 'employee' && (flags.canViewOwnComp === false || Object.entries(flags).some(([flag, enabled]) => enabled && flag !== 'canViewOwnComp' && flag !== 'requiresApproval'))) {
+        throw new Error('roles.employee may only view its own compensation');
+      }
       role.permissions = flags;
     }
     roles[key] = role;
@@ -92,4 +95,37 @@ export function parseSeedPlan(value: unknown): SeedPlan {
 
 export function loadSeedPlan(file: string): SeedPlan {
   return parseSeedPlan(JSON.parse(readFileSync(resolve(file), 'utf8')) as unknown);
+}
+
+export const defaultComponentCatalog = [
+  { code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
+  { code: 'HRA', name: 'House Rent Allowance', category: 'EARNING', is_basic: false },
+  { code: 'SPECIAL', name: 'Special Allowance', category: 'EARNING', is_basic: false },
+  { code: 'EMPLOYER_PF', name: 'Employer PF', category: 'EMPLOYER_CONTRIBUTION', is_basic: false },
+  { code: 'EMPLOYEE_PF', name: 'Employee PF', category: 'EMPLOYEE_DEDUCTION', is_basic: false },
+] as const;
+export type CatalogCode = typeof defaultComponentCatalog[number]['code'];
+export type PlannedRule = { code: CatalogCode; calculationType: 'FIXED' | 'PERCENTAGE_OF_BASE'; fixedAmount: string | null; percentage: string | null };
+
+// Monthly Basic Salary bands in INR; each person gets a stable value inside their role's band.
+const basicBands: Record<SeedRole, { min: number; max: number }> = {
+  admin: { min: 150000, max: 200000 },
+  hr: { min: 60000, max: 90000 },
+  employee: { min: 25000, max: 70000 },
+};
+export const seedCompensationCurrency = 'INR';
+export const seedCompensationEffectiveFrom = '2026-04-01';
+
+export function plannedCompensation(slug: string, person: Pick<PlannedPerson, 'email' | 'role'>): PlannedRule[] {
+  const band = basicBands[person.role];
+  const steps = (band.max - band.min) / 500;
+  const basic = band.min + choice(`${slug}:basic:${person.email}`, steps + 1) * 500;
+  const special = Math.round(basic * (0.2 + choice(`${slug}:special:${person.email}`, 21) / 100) / 100) * 100;
+  return [
+    { code: 'BASIC', calculationType: 'FIXED', fixedAmount: basic.toFixed(2), percentage: null },
+    { code: 'HRA', calculationType: 'PERCENTAGE_OF_BASE', fixedAmount: null, percentage: '40' },
+    { code: 'SPECIAL', calculationType: 'FIXED', fixedAmount: special.toFixed(2), percentage: null },
+    { code: 'EMPLOYER_PF', calculationType: 'PERCENTAGE_OF_BASE', fixedAmount: null, percentage: '12' },
+    { code: 'EMPLOYEE_PF', calculationType: 'PERCENTAGE_OF_BASE', fixedAmount: null, percentage: '12' },
+  ];
 }

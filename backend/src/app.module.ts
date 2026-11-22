@@ -8,6 +8,7 @@ import { EmailOtpController } from './email-otp.controller.js';
 import { TotpController } from './totp.controller.js';
 import { CompensationController } from './compensation.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { CompensationSchedulerService } from './compensation-scheduler.service.js';
 
 @Module({
   imports: [
@@ -26,6 +27,6 @@ import { PrismaModule } from './prisma/prisma.module.js';
     PrismaModule,
   ],
   controllers: [HelloController, AccessController, EmailOtpController, TotpController, CompensationController],
-  providers: [EmailService, EmailOtpService],
+  providers: [EmailService, EmailOtpService, CompensationController, CompensationSchedulerService],
 })
 export class AppModule {}

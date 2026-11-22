@@ -4,24 +4,50 @@ import { Prisma } from './generated/prisma/client.js';
 import { auth } from './auth.js';
 import { AccessController } from './access.controller.js';
 import { PrismaService } from './prisma/prisma.service.js';
-import { calculateCompensation, CompensationValidationError, summarizeResolvedCompensation, type Rule } from './compensation-calculation.js';
-import { canAccessCompensation } from './compensation-access.js';
+import { calculateCompensation, CompensationValidationError, frequencies, summarizeResolvedCompensation, type Frequency, type Rule } from './compensation-calculation.js';
+import { canAccessCompensation, canViewOwnCompensation } from './compensation-access.js';
+import { appliedStatus, canApprove, canPropose, dayBefore, submissionOutcome, today, type WorkflowActor } from './compensation-workflow.js';
 
 type RequestWithCookie = { headers: { cookie?: string } };
-type PackageBody = { currencyCode?: string; effectiveFrom?: string; effectiveTo?: string | null; status?: 'DRAFT' | 'ACTIVE'; items?: Rule[]; version?: number };
-type ComponentBody = { code?: string; name?: string; category?: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION'; isBasic?: boolean; isActive?: boolean };
+type PackageBody = { currencyCode?: string; effectiveFrom?: string; effectiveTo?: string | null; status?: 'DRAFT' | 'SUBMIT' | 'ACTIVE'; items?: Rule[]; version?: number; note?: string };
+type ComponentBody = { code?: string; name?: string; category?: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION'; isBasic?: boolean; isActive?: boolean; defaultFrequency?: Frequency };
 
-function validDate(value: unknown): Date {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException('effectiveFrom must be a date in YYYY-MM-DD format');
+function validDate(value: unknown, label = 'Effective from date'): Date {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException(`${label} is required (YYYY-MM-DD)`);
   const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value) throw new BadRequestException('Invalid effectiveFrom date');
+  if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value) throw new BadRequestException(`${label} is not a real calendar date`);
   return date;
 }
 function validEndDate(value: unknown, start: Date): Date | null {
   if (value == null || value === '') return null;
-  const end = validDate(value);
-  if (end < start) throw new BadRequestException('effectiveTo must be on or after effectiveFrom');
+  const end = validDate(value, 'Effective to date');
+  if (end < start) throw new BadRequestException('Effective to date must be on or after the effective from date');
   return end;
+}
+const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+
+type ChangeRequestBody = { target?: unknown; componentDefinitionId?: unknown; note?: unknown };
+export type ChangeRequest = { target: 'component' | 'effectiveFrom'; componentDefinitionId: string | null; label: string; note: string };
+// Validates an approver's per-item feedback against the package's own components. Labels come
+// from the server so the proposer always sees the real component name.
+export function parseChangeRequests(value: unknown, components: { id: string; name: string }[]): ChangeRequest[] {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 50) throw new BadRequestException('Requested changes are malformed');
+  const seen = new Set<string>();
+  return value.map((raw: ChangeRequestBody) => {
+    const note = typeof raw?.note === 'string' ? raw.note.trim().slice(0, 500) : '';
+    if (!note) throw new BadRequestException('Every flagged item needs a note');
+    if (raw.target === 'effectiveFrom') {
+      if (seen.has('effectiveFrom')) throw new BadRequestException('The effective date is flagged twice');
+      seen.add('effectiveFrom');
+      return { target: 'effectiveFrom' as const, componentDefinitionId: null, label: 'Effective date', note };
+    }
+    const component = components.find((item) => item.id === raw?.componentDefinitionId);
+    if (raw?.target !== 'component' || !component) throw new BadRequestException('A flagged component is not part of this package');
+    if (seen.has(component.id)) throw new BadRequestException(`${component.name} is flagged twice`);
+    seen.add(component.id);
+    return { target: 'component' as const, componentDefinitionId: component.id, label: component.name, note };
+  });
 }
 function mapError(error: unknown): never {
   if (error instanceof CompensationValidationError) throw new BadRequestException(error.message);
@@ -29,6 +55,12 @@ function mapError(error: unknown): never {
     if (error.code === 'P2002' || error.code === 'P2034') throw new ConflictException('Compensation changed concurrently or conflicts with an existing record');
     if (error.code === 'P2003') throw new BadRequestException('Referenced employee, currency, or component is unavailable');
   }
+  const message = error instanceof Error ? error.message : '';
+  if (message.includes('no_overlapping_applied_compensation')) throw new ConflictException('These dates overlap a package that was already applied. Choose an effective date after the current package starts.');
+  if (message.includes('Applied compensation is immutable') || message.includes('Pending compensation can only')) throw new ConflictException('This package was already submitted or applied and can no longer be changed. Reload to see its current state.');
+  if (message.includes('Inactive component')) throw new BadRequestException('One of the components has been deactivated. Remove it and try again.');
+  if (message.includes('used by live packages')) throw new ConflictException('This component is used by active or pending packages, so it can\'t be deactivated.');
+  if (message.includes('before deleting it')) throw new ConflictException('Deactivate the component before deleting it.');
   throw error;
 }
 
@@ -36,14 +68,63 @@ function mapError(error: unknown): never {
 export class CompensationController {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async actor(request: RequestWithCookie, kind: 'read' | 'write') {
+  private async actor(request: RequestWithCookie, kind: 'read' | 'write' | 'approve') {
     await new AccessController(this.prisma).check(request);
     const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
     if (!session?.user) throw new UnauthorizedException();
     const member = await this.prisma.member.findUnique({ where: { userId: session.user.id }, include: { organization_role: { include: { organization_role_permissions: true } } } });
     if (!canAccessCompensation(member, session.session.activeOrganizationId, kind)) throw new ForbiddenException('Compensation permission required');
     if (!member) throw new ForbiddenException('Organization access denied');
-    return { userId: session.user.id, organizationId: member.organizationId };
+    const workflow: WorkflowActor = { role: member.role, userId: session.user.id, flags: member.organization_role?.organization_role_permissions ?? null };
+    return { userId: session.user.id, organizationId: member.organizationId, workflow };
+  }
+
+  private async proposer(request: RequestWithCookie, employeeId: string) {
+    const actor = await this.actor(request, 'write');
+    const employee = await this.employee(employeeId, actor.organizationId);
+    if (!canPropose(actor.workflow, employee.userId)) throw new ForbiddenException(employee.userId === actor.userId ? 'You cannot propose changes to your own compensation' : 'Your role cannot propose compensation changes');
+    return { actor, employee };
+  }
+
+  // Applies a package. One starting after today becomes the employee's single upcoming (SCHEDULED)
+  // package; otherwise it becomes ACTIVE, superseding the current package the day before it starts.
+  private async activate(tx: Prisma.TransactionClient, packageId: string, employeeId: string, effectiveFrom: Date, extra: Prisma.employee_compensationUncheckedUpdateInput = {}): Promise<'ACTIVE' | 'SCHEDULED'> {
+    await tx.$queryRaw`SELECT id FROM employee WHERE id = ${employeeId} FOR UPDATE`;
+    const upcoming = await tx.employee_compensation.findFirst({ where: { employee_id: employeeId, status: 'SCHEDULED', id: { not: packageId } } });
+    if (upcoming) throw new ConflictException(`An upcoming package already starts ${isoDate(upcoming.effective_from)}. An approver must cancel it before another can be applied.`);
+    const current = await tx.employee_compensation.findFirst({ where: { employee_id: employeeId, status: 'ACTIVE', id: { not: packageId } } });
+    if (current && effectiveFrom <= current.effective_from) throw new ConflictException(`The new package must start after the current one (${isoDate(current.effective_from)}).`);
+    const status = appliedStatus(effectiveFrom);
+    if (current && status === 'ACTIVE') await tx.employee_compensation.update({ where: { id: current.id }, data: { status: 'SUPERSEDED', effective_to: dayBefore(effectiveFrom), updated_at: new Date() } });
+    await tx.employee_compensation.update({ where: { id: packageId }, data: { ...extra, status, updated_at: new Date() } });
+    return status;
+  }
+
+  /** Promotes every upcoming package whose effective date has arrived. Runs nightly and on startup. */
+  async promoteDuePackages(): Promise<number> {
+    const due = await this.prisma.employee_compensation.findMany({ where: { status: 'SCHEDULED', effective_from: { lte: today() } } });
+    let promoted = 0;
+    for (const row of due) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM employee WHERE id = ${row.employee_id} FOR UPDATE`;
+          if (!await tx.employee_compensation.findFirst({ where: { id: row.id, status: 'SCHEDULED' } })) return;
+          const current = await tx.employee_compensation.findFirst({ where: { employee_id: row.employee_id, status: 'ACTIVE' } });
+          if (current) await tx.employee_compensation.update({ where: { id: current.id }, data: { status: 'SUPERSEDED', effective_to: dayBefore(row.effective_from), updated_at: new Date() } });
+          await tx.employee_compensation.update({ where: { id: row.id }, data: { status: 'ACTIVE', updated_at: new Date() } });
+          promoted += 1;
+        });
+      } catch (error) { console.error(`Could not promote upcoming compensation ${row.id}`, error); }
+    }
+    return promoted;
+  }
+
+  // Rejects a submission that cannot be applied, before anything is written.
+  private async assertStartsAfterActive(employeeId: string, effectiveFrom: Date) {
+    const upcoming = await this.prisma.employee_compensation.findFirst({ where: { employee_id: employeeId, status: 'SCHEDULED' } });
+    if (upcoming) throw new ConflictException(`An upcoming package already starts ${isoDate(upcoming.effective_from)}. An approver must cancel it before another can be submitted.`);
+    const current = await this.prisma.employee_compensation.findFirst({ where: { employee_id: employeeId, status: 'ACTIVE' } });
+    if (current && effectiveFrom <= current.effective_from) throw new BadRequestException(`Effective from date must be after ${isoDate(current.effective_from)}, when the current package started.`);
   }
 
   private async employee(employeeId: string, organizationId: string) {
@@ -60,7 +141,7 @@ export class CompensationController {
     try {
       return calculateCompensation({
         currency: { code: currency.code, decimalPlaces: currency.decimal_places, isActive: currency.is_active },
-        definitions: definitions.map((item) => ({ id: item.id, category: item.category, isBasic: item.is_basic, isActive: item.is_active })),
+        definitions: definitions.map((item) => ({ id: item.id, name: item.name, category: item.category, isBasic: item.is_basic, isActive: item.is_active })),
         items: body.items,
       });
     } catch (error) { return mapError(error); }
@@ -70,8 +151,101 @@ export class CompensationController {
     return this.prisma.employee_compensation.findFirst({ where: { id, organization_id: organizationId }, include: { currency: true, items: { include: { definition: true }, orderBy: { created_at: 'asc' } } } });
   }
 
-  private withSummary<T extends { currency: { code: string; decimal_places: number }; items: { resolved_monthly_amount: Prisma.Decimal; definition: { category: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION' } }[] }>(row: T) {
-    return { ...row, summary: summarizeResolvedCompensation({ code: row.currency.code, decimalPlaces: row.currency.decimal_places }, row.items.map((item) => ({ resolvedMonthlyAmount: item.resolved_monthly_amount.toString(), category: item.definition.category }))) };
+  private withSummary<T extends { currency: { code: string; decimal_places: number }; items: { resolved_amount: Prisma.Decimal; frequency: Frequency; definition: { category: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION' } }[] }>(row: T) {
+    return { ...row, summary: summarizeResolvedCompensation({ code: row.currency.code, decimalPlaces: row.currency.decimal_places }, row.items.map((item) => ({ resolvedAmount: item.resolved_amount.toString(), frequency: item.frequency, category: item.definition.category }))) };
+  }
+
+  // Self-service: the caller's own applied compensation only. Drafts are never exposed here.
+  private async self(request: RequestWithCookie) {
+    await new AccessController(this.prisma).check(request);
+    const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
+    if (!session?.user) throw new UnauthorizedException();
+    const member = await this.prisma.member.findUnique({ where: { userId: session.user.id }, include: { organization_role: { include: { organization_role_permissions: true } } } });
+    if (!canViewOwnCompensation(member, session.session.activeOrganizationId)) throw new ForbiddenException('Compensation permission required');
+    const employee = await this.prisma.employee.findFirst({ where: { userId: session.user.id, organizationId: member!.organizationId }, include: { organization: true } });
+    if (!employee) throw new NotFoundException('Employee profile not found');
+    return employee;
+  }
+
+  @Get('me/capabilities')
+  async capabilities(@Req() request: RequestWithCookie) {
+    await new AccessController(this.prisma).check(request);
+    const session = await auth.api.getSession({ headers: new Headers({ cookie: request.headers.cookie ?? '' }) });
+    if (!session?.user) throw new UnauthorizedException();
+    const member = await this.prisma.member.findUnique({ where: { userId: session.user.id }, include: { organization_role: { include: { organization_role_permissions: true } } } });
+    const activeOrganizationId = session.session.activeOrganizationId;
+    return {
+      canViewOthers: canAccessCompensation(member, activeOrganizationId, 'read'),
+      canManageOthers: canAccessCompensation(member, activeOrganizationId, 'write'),
+      canViewOwn: canViewOwnCompensation(member, activeOrganizationId),
+      canApprove: canAccessCompensation(member, activeOrganizationId, 'approve'),
+      pendingApprovals: canAccessCompensation(member, activeOrganizationId, 'approve') && member ? await this.prisma.employee_compensation.count({ where: { organization_id: member.organizationId, status: 'PENDING_APPROVAL' } }) : 0,
+    };
+  }
+
+  @Get('me/compensation')
+  async myCompensation(@Req() request: RequestWithCookie) {
+    const employee = await this.self(request);
+    const rows = await this.prisma.employee_compensation.findMany({ where: { employee_id: employee.id, organization_id: employee.organizationId, status: { in: ['ACTIVE', 'SUPERSEDED'] } }, include: { currency: true, items: { include: { definition: true }, orderBy: { created_at: 'asc' } } }, orderBy: { effective_from: 'desc' } });
+    const active = rows.find((row) => row.status === 'ACTIVE');
+    return { employee: { id: employee.id, displayName: employee.displayName, organizationId: employee.organizationId, organization: { name: employee.organization.name } }, active: active ? this.withSummary(active) : null, history: rows.map((row) => this.withSummary(row)) };
+  }
+
+  // Organization-wide totals for the management dashboard. Amounts are grouped by currency
+  // so packages in different currencies are never summed together.
+  @Get('compensation/stats')
+  async stats(@Req() request: RequestWithCookie) {
+    const actor = await this.actor(request, 'read');
+    const [employees, drafts, pending, active] = await Promise.all([
+      this.prisma.employee.findMany({ where: { organizationId: actor.organizationId }, select: { id: true, user: { select: { member: { select: { role: true } } } } } }),
+      this.prisma.employee_compensation.count({ where: { organization_id: actor.organizationId, status: 'DRAFT' } }),
+      this.prisma.employee_compensation.count({ where: { organization_id: actor.organizationId, status: 'PENDING_APPROVAL' } }),
+      this.prisma.employee_compensation.findMany({ where: { organization_id: actor.organizationId, status: 'ACTIVE' }, include: { currency: true, items: { include: { definition: true } } } }),
+    ]);
+    const roleOf = new Map(employees.map((employee) => [employee.id, employee.user.member?.role ?? 'employee']));
+    const byCurrency = new Map<string, typeof active>();
+    for (const row of active) byCurrency.set(row.currency_code, [...(byCurrency.get(row.currency_code) ?? []), row]);
+    const currencies = [...byCurrency.entries()].sort((a, b) => b[1].length - a[1].length).map(([code, rows]) => {
+      const decimals = rows[0].currency.decimal_places;
+      const fixed = (value: Prisma.Decimal) => value.toDecimalPlaces(decimals, Prisma.Decimal.ROUND_HALF_UP).toFixed(decimals);
+      const summaries = rows.map((row) => ({ row, summary: this.withSummary(row).summary }));
+      const annual = summaries.map(({ summary }) => new Prisma.Decimal(summary.annualCtc)).sort((a, b) => a.comparedTo(b));
+      const total = (key: 'monthlyGross' | 'monthlyEmployerContributions' | 'monthlyEmployeeDeductions' | 'monthlyCtc' | 'annualCtc') => summaries.reduce((sum, { summary }) => sum.add(summary[key]), new Prisma.Decimal(0));
+      const middle = Math.floor(annual.length / 2);
+      const median = annual.length % 2 ? annual[middle] : annual[middle - 1].add(annual[middle]).div(2);
+      const components = new Map<string, { name: string; category: string; monthly: Prisma.Decimal; annual: Prisma.Decimal; oneTime: Prisma.Decimal; frequencies: Set<Frequency> }>();
+      for (const row of rows) for (const item of row.items) {
+        const entry = components.get(item.definition.code) ?? { name: item.definition.name, category: item.definition.category, monthly: new Prisma.Decimal(0), annual: new Prisma.Decimal(0), oneTime: new Prisma.Decimal(0), frequencies: new Set<Frequency>() };
+        entry.monthly = entry.monthly.add(item.resolved_monthly_amount);
+        entry.annual = entry.annual.add(item.annual_amount);
+        if (item.frequency === 'ONE_TIME') entry.oneTime = entry.oneTime.add(item.resolved_amount);
+        entry.frequencies.add(item.frequency);
+        components.set(item.definition.code, entry);
+      }
+      const roles = new Map<string, { count: number; annual: Prisma.Decimal }>();
+      for (const { row, summary } of summaries) {
+        const role = roleOf.get(row.employee_id) ?? 'employee';
+        const entry = roles.get(role) ?? { count: 0, annual: new Prisma.Decimal(0) };
+        entry.count++; entry.annual = entry.annual.add(summary.annualCtc);
+        roles.set(role, entry);
+      }
+      const bucketCount = 6;
+      const low = annual[0], high = annual[annual.length - 1];
+      const width = high.sub(low).div(bucketCount);
+      const distribution = Array.from({ length: bucketCount }, (_, index) => ({ from: fixed(low.add(width.mul(index))), to: fixed(index === bucketCount - 1 ? high : low.add(width.mul(index + 1))), count: 0 }));
+      for (const value of annual) distribution[width.isZero() ? 0 : Math.min(bucketCount - 1, value.sub(low).div(width).floor().toNumber())].count++;
+      return {
+        currency: { code, name: rows[0].currency.name, symbol: rows[0].currency.symbol, decimal_places: decimals },
+        packages: rows.length,
+        totals: { monthlyGross: fixed(total('monthlyGross')), monthlyEmployerContributions: fixed(total('monthlyEmployerContributions')), monthlyEmployeeDeductions: fixed(total('monthlyEmployeeDeductions')), monthlyCtc: fixed(total('monthlyCtc')), annualCtc: fixed(total('annualCtc')) },
+        annualCtc: { average: fixed(total('annualCtc').div(rows.length)), median: fixed(median), min: fixed(low), max: fixed(high) },
+        components: [...components.entries()].map(([code, entry]) => ({ code, name: entry.name, category: entry.category, monthly: fixed(entry.monthly), annual: fixed(entry.annual), oneTime: fixed(entry.oneTime), frequencies: [...entry.frequencies] })).sort((a, b) => Number(b.annual) + Number(b.oneTime) - Number(a.annual) - Number(a.oneTime)),
+        roles: ['admin', 'hr', 'employee'].filter((role) => roles.has(role)).map((role) => ({ role, count: roles.get(role)!.count, averageAnnualCtc: fixed(roles.get(role)!.annual.div(roles.get(role)!.count)) })),
+        distribution,
+      };
+    });
+    const covered = new Set(active.map((row) => row.employee_id));
+    return { headcount: employees.length, withActivePackage: covered.size, withoutActivePackage: employees.length - covered.size, drafts, pending, currencies };
   }
 
   @Get('currencies')
@@ -80,29 +254,80 @@ export class CompensationController {
     return this.prisma.currency.findMany({ where: { is_active: true }, orderBy: { code: 'asc' } });
   }
 
+  // Package lines in ACTIVE or PENDING_APPROVAL packages that use each definition.
+  private async liveUsage(organizationId: string): Promise<Map<string, number>> {
+    const rows = await this.prisma.employee_compensation_item.groupBy({ by: ['component_definition_id'], where: { compensation: { organization_id: organizationId, status: { in: ['ACTIVE', 'PENDING_APPROVAL', 'SCHEDULED'] } } }, _count: { _all: true } });
+    return new Map(rows.map((row) => [row.component_definition_id, row._count._all]));
+  }
+
+  // Definitions (deleted ones hidden) with total and live usage, which decide what can be deactivated or deleted.
   @Get('compensation/components')
   async components(@Req() request: RequestWithCookie) {
     const actor = await this.actor(request, 'read');
-    return this.prisma.compensation_component_definition.findMany({ where: { organization_id: actor.organizationId }, orderBy: { code: 'asc' } });
+    const [rows, live] = await Promise.all([
+      this.prisma.compensation_component_definition.findMany({ where: { organization_id: actor.organizationId, deleted_at: null }, orderBy: [{ is_basic: 'desc' }, { name: 'asc' }], include: { _count: { select: { items: true } } } }),
+      this.liveUsage(actor.organizationId),
+    ]);
+    return rows.map(({ _count, ...row }) => ({ ...row, usage: _count.items, liveUsage: live.get(row.id) ?? 0 }));
+  }
+
+  private frequencyFor(value: unknown, category: string, isBasic: boolean): Frequency {
+    const frequency = (value ?? 'MONTHLY') as Frequency;
+    if (!frequencies.includes(frequency)) throw new BadRequestException('Choose how often this component is paid');
+    if (isBasic && frequency !== 'MONTHLY') throw new BadRequestException('Basic Salary is always paid monthly');
+    if (category === 'EMPLOYEE_DEDUCTION' && frequency === 'ONE_TIME') throw new BadRequestException('Deductions cannot be one-time; choose how often they are deducted');
+    return frequency;
   }
 
   @Post('compensation/components')
   async createComponent(@Req() request: RequestWithCookie, @Body() body: ComponentBody) {
     const actor = await this.actor(request, 'write');
-    if (!body || !/^[A-Z][A-Z0-9_]*$/.test(body.code ?? '') || !body.name?.trim() || !['EARNING', 'EMPLOYER_CONTRIBUTION', 'EMPLOYEE_DEDUCTION'].includes(body.category ?? '')) throw new BadRequestException('Valid code, name, and category are required');
-    if (body.isBasic && body.category !== 'EARNING') throw new BadRequestException('Basic Salary must be an earning');
-    try { return await this.prisma.compensation_component_definition.create({ data: { id: randomUUID(), organization_id: actor.organizationId, code: body.code!, name: body.name.trim(), category: body.category!, is_basic: !!body.isBasic } }); }
+    const name = body?.name?.trim();
+    if (!name) throw new BadRequestException('Enter a name for the component');
+    if (name.length > 80) throw new BadRequestException('Keep the name under 80 characters');
+    if (!/^[A-Z][A-Z0-9_]{0,39}$/.test(body.code ?? '')) throw new BadRequestException('Code must start with a letter and use only capital letters, numbers, and underscores');
+    if (!['EARNING', 'EMPLOYER_CONTRIBUTION', 'EMPLOYEE_DEDUCTION'].includes(body.category ?? '')) throw new BadRequestException('Choose a category');
+    if (body.isBasic) throw new BadRequestException('Your organization already has Basic Salary');
+    const defaultFrequency = this.frequencyFor(body.defaultFrequency, body.category!, false);
+    const clash = await this.prisma.compensation_component_definition.findFirst({ where: { organization_id: actor.organizationId, code: body.code } });
+    if (clash) throw new ConflictException(clash.deleted_at ? `The code ${body.code} belonged to a deleted component that past packages still reference. Choose another code.` : `The code ${body.code} is already used by another component`);
+    try { return await this.prisma.compensation_component_definition.create({ data: { id: randomUUID(), organization_id: actor.organizationId, code: body.code!, name, category: body.category!, is_basic: false, default_frequency: defaultFrequency } }); }
     catch (error) { return mapError(error); }
   }
 
   @Patch('compensation/components/:id')
   async updateComponent(@Req() request: RequestWithCookie, @Param('id') id: string, @Body() body: ComponentBody) {
     const actor = await this.actor(request, 'write');
-    if (!body || (body.name === undefined && body.isActive === undefined) || (body.name !== undefined && !body.name.trim()) || (body.isActive !== undefined && typeof body.isActive !== 'boolean') || body.code !== undefined || body.category !== undefined || body.isBasic !== undefined) throw new BadRequestException('Only name and active status may change');
+    if (!body || body.code !== undefined || body.category !== undefined || body.isBasic !== undefined) throw new BadRequestException('Code and category cannot change after a component is created');
+    if (body.name === undefined && body.isActive === undefined && body.defaultFrequency === undefined) throw new BadRequestException('Nothing to update');
+    if (body.name !== undefined && !body.name.trim()) throw new BadRequestException('Enter a name for the component');
+    if (body.isActive !== undefined && typeof body.isActive !== 'boolean') throw new BadRequestException('Active must be true or false');
     const existing = await this.prisma.compensation_component_definition.findFirst({ where: { id, organization_id: actor.organizationId } });
     if (!existing) throw new NotFoundException('Component not found');
     if (existing.is_basic && body.isActive === false) throw new BadRequestException('Basic Salary cannot be deactivated');
-    return this.prisma.compensation_component_definition.update({ where: { id }, data: { ...(body.name !== undefined ? { name: body.name.trim() } : {}), ...(body.isActive !== undefined ? { is_active: body.isActive } : {}), updated_at: new Date() } });
+    if (existing.deleted_at) throw new NotFoundException('Component not found');
+    if (body.isActive === false && existing.is_active) {
+      const live = (await this.liveUsage(actor.organizationId)).get(id) ?? 0;
+      if (live > 0) throw new ConflictException(`${existing.name} is used in ${live} active or pending package${live === 1 ? '' : 's'}, so it can't be deactivated. It can be deactivated once those packages are revised without it.`);
+    }
+    const defaultFrequency = body.defaultFrequency === undefined ? undefined : this.frequencyFor(body.defaultFrequency, existing.category, existing.is_basic);
+    try { return await this.prisma.compensation_component_definition.update({ where: { id }, data: { ...(body.name !== undefined ? { name: body.name.trim().slice(0, 80) } : {}), ...(body.isActive !== undefined ? { is_active: body.isActive } : {}), ...(defaultFrequency ? { default_frequency: defaultFrequency } : {}), updated_at: new Date() } }); }
+    catch (error) { return mapError(error); }
+  }
+
+  // Inactive components can be deleted. If past packages reference one it is hidden rather than removed.
+  @Delete('compensation/components/:id')
+  async deleteComponent(@Req() request: RequestWithCookie, @Param('id') id: string) {
+    const actor = await this.actor(request, 'write');
+    const existing = await this.prisma.compensation_component_definition.findFirst({ where: { id, organization_id: actor.organizationId, deleted_at: null }, include: { _count: { select: { items: true } } } });
+    if (!existing) throw new NotFoundException('Component not found');
+    if (existing.is_basic) throw new BadRequestException('Basic Salary cannot be deleted');
+    if (existing.is_active) throw new ConflictException(`Deactivate ${existing.name} before deleting it`);
+    try {
+      if (existing._count.items === 0) await this.prisma.compensation_component_definition.delete({ where: { id } });
+      else await this.prisma.compensation_component_definition.update({ where: { id }, data: { deleted_at: new Date(), updated_at: new Date() } });
+      return { deleted: true };
+    } catch (error) { return mapError(error); }
   }
 
   @Post('compensation/preview')
@@ -117,42 +342,171 @@ export class CompensationController {
     return this.prisma.employee.findMany({ where: { organizationId: actor.organizationId }, select: { id: true, displayName: true, organizationId: true }, orderBy: { displayName: 'asc' } });
   }
 
+  // Paginated directory for the management screen: search, filter by role/status, sort.
+  @Get('employees/directory')
+  async directory(@Req() request: RequestWithCookie & { query?: Record<string, string | undefined> }) {
+    const actor = await this.actor(request, 'read');
+    const query = request.query ?? {};
+    const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
+    const pageSize = Math.min(100, Math.max(5, Number.parseInt(query.pageSize ?? '10', 10) || 10));
+    const search = (query.q ?? '').trim().toLowerCase().slice(0, 100);
+    const role = ['admin', 'hr', 'employee'].includes(query.role ?? '') ? query.role : undefined;
+    const status = ['active', 'none', 'draft', 'pending'].includes(query.status ?? '') ? query.status : undefined;
+    const sort = ['name', 'ctc-desc', 'ctc-asc', 'effective'].includes(query.sort ?? '') ? query.sort! : 'name';
+
+    const employees = await this.prisma.employee.findMany({
+      where: { organizationId: actor.organizationId },
+      select: {
+        id: true, displayName: true,
+        user: { select: { email: true, member: { select: { role: true } } } },
+        compensation: { where: { status: { in: ['ACTIVE', 'DRAFT', 'PENDING_APPROVAL'] } }, include: { currency: true, items: { include: { definition: true } } } },
+      },
+    });
+    let rows = employees.map((employee) => {
+      const active = employee.compensation.find((row) => row.status === 'ACTIVE');
+      const summary = active ? this.withSummary(active).summary : null;
+      return {
+        id: employee.id, displayName: employee.displayName, email: employee.user.email, role: employee.user.member?.role ?? 'employee',
+        drafts: employee.compensation.filter((row) => row.status === 'DRAFT').length,
+        pending: employee.compensation.filter((row) => row.status === 'PENDING_APPROVAL').length,
+        active: active && summary ? { currency: { code: active.currency.code, name: active.currency.name, symbol: active.currency.symbol, decimal_places: active.currency.decimal_places }, effectiveFrom: active.effective_from, annualCtc: summary.annualCtc, monthlyGross: summary.monthlyGross } : null,
+      };
+    });
+    const counts = { all: rows.length, active: rows.filter((row) => row.active).length, none: rows.filter((row) => !row.active).length, draft: rows.filter((row) => row.drafts > 0).length, pending: rows.filter((row) => row.pending > 0).length };
+    if (search) rows = rows.filter((row) => row.displayName.toLowerCase().includes(search) || row.email.toLowerCase().includes(search));
+    if (role) rows = rows.filter((row) => row.role === role);
+    if (status === 'active') rows = rows.filter((row) => row.active);
+    if (status === 'none') rows = rows.filter((row) => !row.active);
+    if (status === 'draft') rows = rows.filter((row) => row.drafts > 0);
+    if (status === 'pending') rows = rows.filter((row) => row.pending > 0);
+    const ctc = (row: typeof rows[number]) => row.active ? Number(row.active.annualCtc) : -1;
+    rows.sort((a, b) => sort === 'ctc-desc' ? ctc(b) - ctc(a) : sort === 'ctc-asc' ? ctc(a) - ctc(b)
+      : sort === 'effective' ? (b.active?.effectiveFrom.valueOf() ?? 0) - (a.active?.effectiveFrom.valueOf() ?? 0)
+      : a.displayName.localeCompare(b.displayName));
+    const total = rows.length;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    const current = Math.min(page, pages);
+    return { items: rows.slice((current - 1) * pageSize, current * pageSize), page: current, pageSize, total, pages, counts };
+  }
+
   @Get('employees/:employeeId/compensation')
   async current(@Req() request: RequestWithCookie, @Param('employeeId') employeeId: string) {
     const actor = await this.actor(request, 'read');
     const employee = await this.employee(employeeId, actor.organizationId);
-    const packages = await this.prisma.employee_compensation.findMany({ where: { employee_id: employeeId, organization_id: actor.organizationId, status: { in: ['ACTIVE', 'DRAFT'] } }, include: { currency: true, items: { include: { definition: true } } }, orderBy: { created_at: 'desc' } });
+    const packages = await this.prisma.employee_compensation.findMany({ where: { employee_id: employeeId, organization_id: actor.organizationId, status: { in: ['ACTIVE', 'SCHEDULED', 'DRAFT', 'PENDING_APPROVAL'] } }, include: { currency: true, items: { include: { definition: true }, orderBy: { created_at: 'asc' } }, submitter: { select: { name: true } }, decider: { select: { name: true } } }, orderBy: { created_at: 'desc' } });
     const active = packages.find((item) => item.status === 'ACTIVE');
-    return { employee, active: active ? this.withSummary(active) : null, drafts: packages.filter((item) => item.status === 'DRAFT').map((item) => this.withSummary(item)) };
+    const upcoming = packages.find((item) => item.status === 'SCHEDULED');
+    const propose = canPropose(actor.workflow, employee.userId);
+    return {
+      employee,
+      active: active ? this.withSummary(active) : null,
+      upcoming: upcoming ? this.withSummary(upcoming) : null,
+      drafts: packages.filter((item) => item.status === 'DRAFT').map((item) => this.withSummary(item)),
+      pending: packages.filter((item) => item.status === 'PENDING_APPROVAL').map((item) => ({ ...this.withSummary(item), canDecide: canApprove(actor.workflow, employee.userId, item.submitted_by) })),
+      permissions: { canPropose: propose, submitOutcome: propose ? submissionOutcome(actor.workflow) : null, canCancelUpcoming: canApprove(actor.workflow, employee.userId, null) },
+    };
   }
 
   @Get('employees/:employeeId/compensation/history')
   async history(@Req() request: RequestWithCookie, @Param('employeeId') employeeId: string) {
     const actor = await this.actor(request, 'read');
     await this.employee(employeeId, actor.organizationId);
-    const rows = await this.prisma.employee_compensation.findMany({ where: { employee_id: employeeId, organization_id: actor.organizationId, status: { in: ['ACTIVE', 'SUPERSEDED'] } }, include: { currency: true, items: { include: { definition: true } } }, orderBy: { effective_from: 'desc' } });
+    const rows = await this.prisma.employee_compensation.findMany({ where: { employee_id: employeeId, organization_id: actor.organizationId, status: { in: ['SCHEDULED', 'ACTIVE', 'SUPERSEDED'] } }, include: { currency: true, items: { include: { definition: true } } }, orderBy: { effective_from: 'desc' } });
     return rows.map((row) => this.withSummary(row));
   }
 
   @Post('employees/:employeeId/compensation')
   async createPackage(@Req() request: RequestWithCookie, @Param('employeeId') employeeId: string, @Body() body: PackageBody) {
-    const actor = await this.actor(request, 'write');
-    await this.employee(employeeId, actor.organizationId);
-    if (body?.status !== 'DRAFT' && body?.status !== 'ACTIVE') throw new BadRequestException('Status must be DRAFT or ACTIVE');
+    const { actor } = await this.proposer(request, employeeId);
+    const intent = body?.status === 'ACTIVE' ? 'SUBMIT' : body?.status;
+    if (intent !== 'DRAFT' && intent !== 'SUBMIT') throw new BadRequestException('Choose whether to save a draft or submit the package');
     const effectiveFrom = validDate(body.effectiveFrom);
     const effectiveTo = validEndDate(body.effectiveTo, effectiveFrom);
     const result = await this.calculate(actor.organizationId, body);
+    if (intent === 'SUBMIT') await this.assertStartsAfterActive(employeeId, effectiveFrom);
+    let outcome: 'DRAFT' | 'PENDING_APPROVAL' | 'ACTIVE' | 'SCHEDULED' = intent === 'SUBMIT' ? submissionOutcome(actor.workflow) : 'DRAFT';
+    const note = body.note?.trim().slice(0, 1000) || null;
     try {
       const id = await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM employee WHERE id = ${employeeId} FOR UPDATE`;
-        if (body.status === 'ACTIVE' && await tx.employee_compensation.count({ where: { employee_id: employeeId, status: { in: ['ACTIVE', 'SUPERSEDED'] } } })) throw new ConflictException('Initial activation requires no applied compensation history');
         const packageRow = await tx.employee_compensation.create({ data: { id: randomUUID(), organization_id: actor.organizationId, employee_id: employeeId, currency_code: result.currencyCode, status: 'DRAFT', effective_from: effectiveFrom, effective_to: effectiveTo, created_by: actor.userId } });
-        await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: packageRow.id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount ?? null, percentage: item.percentage ?? null, resolved_monthly_amount: item.resolvedMonthlyAmount })) });
-        if (body.status === 'ACTIVE') await tx.employee_compensation.update({ where: { id: packageRow.id }, data: { status: 'ACTIVE', updated_at: new Date() } });
+        await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: packageRow.id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount ?? null, percentage: item.percentage ?? null, resolved_monthly_amount: item.resolvedMonthlyAmount, frequency: item.frequency, resolved_amount: item.resolvedAmount, annual_amount: item.annualAmount })) });
+        if (outcome === 'DRAFT') return packageRow.id;
+        const submitted = { submitted_by: actor.userId, submitted_at: new Date(), decision_note: note };
+        if (outcome === 'PENDING_APPROVAL') await tx.employee_compensation.update({ where: { id: packageRow.id }, data: { ...submitted, status: 'PENDING_APPROVAL', updated_at: new Date() } });
+        else outcome = await this.activate(tx, packageRow.id, employeeId, effectiveFrom, { ...submitted, decided_by: actor.userId, decided_at: new Date() });
         return packageRow.id;
       });
       const row = await this.packageDetail(id, actor.organizationId);
-      return { package: row && this.withSummary(row), calculation: result };
+      return { outcome, package: row && this.withSummary(row), calculation: result };
+    } catch (error) { return mapError(error); }
+  }
+
+  @Post('compensation/:id/submit')
+  async submitDraft(@Req() request: RequestWithCookie, @Param('id') id: string, @Body() body: { version?: number; note?: string }) {
+    const base = await this.actor(request, 'write');
+    const existing = await this.prisma.employee_compensation.findFirst({ where: { id, organization_id: base.organizationId } });
+    if (!existing) throw new NotFoundException('Compensation package not found');
+    if (existing.status !== 'DRAFT') throw new ConflictException('Only drafts can be submitted');
+    const { actor } = await this.proposer(request, existing.employee_id);
+    if (!Number.isSafeInteger(body?.version)) throw new BadRequestException('Draft version is required');
+    await this.assertStartsAfterActive(existing.employee_id, existing.effective_from);
+    let outcome: 'PENDING_APPROVAL' | 'ACTIVE' | 'SCHEDULED' = submissionOutcome(actor.workflow);
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.employee_compensation.updateMany({ where: { id, status: 'DRAFT', version: body.version }, data: { submitted_by: actor.userId, submitted_at: new Date(), decision_note: body.note?.trim().slice(0, 1000) || null, change_requests: Prisma.DbNull, version: { increment: 1 }, updated_at: new Date() } });
+        if (locked.count !== 1) throw new ConflictException('This draft changed since you opened it. Reload and try again.');
+        if (outcome === 'PENDING_APPROVAL') await tx.employee_compensation.update({ where: { id }, data: { status: 'PENDING_APPROVAL' } });
+        else outcome = await this.activate(tx, id, existing.employee_id, existing.effective_from, { decided_by: actor.userId, decided_at: new Date() });
+      });
+      return { outcome };
+    } catch (error) { return mapError(error); }
+  }
+
+  private async pendingForDecision(request: RequestWithCookie, id: string, version: unknown) {
+    const actor = await this.actor(request, 'approve');
+    const pending = await this.prisma.employee_compensation.findFirst({ where: { id, organization_id: actor.organizationId }, include: { employee: true } });
+    if (!pending) throw new NotFoundException('Compensation package not found');
+    if (pending.status !== 'PENDING_APPROVAL') throw new ConflictException('This package is no longer waiting for approval. Reload to see its current state.');
+    if (!canApprove(actor.workflow, pending.employee.userId, pending.submitted_by)) throw new ForbiddenException(pending.submitted_by === actor.userId ? 'You cannot approve a package you submitted' : 'Your role cannot approve compensation');
+    if (!Number.isSafeInteger(version) || version !== pending.version) throw new ConflictException('This package changed since you opened it. Reload and try again.');
+    return { actor, pending };
+  }
+
+  // Everything waiting for this approver, with the package it would replace for comparison.
+  @Get('compensation/approvals')
+  async approvals(@Req() request: RequestWithCookie) {
+    const actor = await this.actor(request, 'approve');
+    const pending = await this.prisma.employee_compensation.findMany({
+      where: { organization_id: actor.organizationId, status: 'PENDING_APPROVAL' },
+      include: { currency: true, items: { include: { definition: true }, orderBy: { created_at: 'asc' } }, submitter: { select: { name: true } }, employee: { select: { id: true, displayName: true, userId: true } } },
+      orderBy: { submitted_at: 'asc' },
+    });
+    const activeRows = await this.prisma.employee_compensation.findMany({ where: { organization_id: actor.organizationId, status: 'ACTIVE', employee_id: { in: pending.map((row) => row.employee_id) } }, include: { currency: true, items: { include: { definition: true } } } });
+    return pending.map(({ employee, ...row }) => {
+      const active = activeRows.find((item) => item.employee_id === row.employee_id);
+      return { ...this.withSummary(row), employee: { id: employee.id, displayName: employee.displayName }, canDecide: canApprove(actor.workflow, employee.userId, row.submitted_by), current: active ? this.withSummary(active) : null };
+    });
+  }
+
+  @Post('compensation/:id/approve')
+  async approve(@Req() request: RequestWithCookie, @Param('id') id: string, @Body() body: { version?: number; note?: string }) {
+    const { actor, pending } = await this.pendingForDecision(request, id, body?.version);
+    try {
+      const outcome = await this.prisma.$transaction((tx) => this.activate(tx, id, pending.employee_id, pending.effective_from, { decided_by: actor.userId, decided_at: new Date(), decision_note: body.note?.trim().slice(0, 1000) || pending.decision_note, version: { increment: 1 } }));
+      return { outcome };
+    } catch (error) { return mapError(error); }
+  }
+
+  @Post('compensation/:id/reject')
+  async reject(@Req() request: RequestWithCookie, @Param('id') id: string, @Body() body: { version?: number; note?: string; changes?: ChangeRequestBody[] }) {
+    const note = body?.note?.trim() || null;
+    const { actor } = await this.pendingForDecision(request, id, body?.version);
+    const items = await this.prisma.employee_compensation_item.findMany({ where: { compensation_id: id }, include: { definition: true } });
+    const changes = parseChangeRequests(body?.changes, items.map((item) => ({ id: item.component_definition_id, name: item.definition.name })));
+    if (!note && !changes.length) throw new BadRequestException('Flag at least one item or add a note explaining what needs to change');
+    try {
+      await this.prisma.employee_compensation.update({ where: { id }, data: { status: 'DRAFT', decided_by: actor.userId, decided_at: new Date(), decision_note: note?.slice(0, 1000) ?? null, change_requests: changes.length ? changes : Prisma.DbNull, version: { increment: 1 }, updated_at: new Date() } });
+      return { outcome: 'DRAFT' };
     } catch (error) { return mapError(error); }
   }
 
@@ -171,7 +525,7 @@ export class CompensationController {
         const updated = await tx.employee_compensation.updateMany({ where: { id, organization_id: actor.organizationId, status: 'DRAFT', version: body.version }, data: { currency_code: result.currencyCode, effective_from: effectiveFrom, effective_to: effectiveTo, version: { increment: 1 }, updated_at: new Date() } });
         if (updated.count !== 1) throw new ConflictException('Draft version changed; reload before saving');
         await tx.employee_compensation_item.deleteMany({ where: { compensation_id: id } });
-        await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount ?? null, percentage: item.percentage ?? null, resolved_monthly_amount: item.resolvedMonthlyAmount })) });
+        await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount ?? null, percentage: item.percentage ?? null, resolved_monthly_amount: item.resolvedMonthlyAmount, frequency: item.frequency, resolved_amount: item.resolvedAmount, annual_amount: item.annualAmount })) });
       });
       const row = await this.packageDetail(id, actor.organizationId);
       return { package: row && this.withSummary(row), calculation: result };
@@ -184,6 +538,19 @@ export class CompensationController {
     if (!Number.isSafeInteger(body?.version)) throw new BadRequestException('Draft version is required');
     const deleted = await this.prisma.employee_compensation.deleteMany({ where: { id, organization_id: actor.organizationId, status: 'DRAFT', version: body.version } });
     if (!deleted.count) throw new ConflictException('Draft not found or version changed');
+    return { deleted: true };
+  }
+
+  // Cancels an employee's upcoming package. Only approvers may; it frees the single upcoming slot.
+  @Delete('compensation/:id/upcoming')
+  async cancelUpcoming(@Req() request: RequestWithCookie, @Param('id') id: string) {
+    const actor = await this.actor(request, 'approve');
+    const upcoming = await this.prisma.employee_compensation.findFirst({ where: { id, organization_id: actor.organizationId }, include: { employee: true } });
+    if (!upcoming) throw new NotFoundException('Compensation package not found');
+    if (upcoming.status !== 'SCHEDULED') throw new ConflictException('This package is no longer upcoming. Reload to see its current state.');
+    if (!canApprove(actor.workflow, upcoming.employee.userId, null)) throw new ForbiddenException('Your role cannot cancel this package');
+    const deleted = await this.prisma.employee_compensation.deleteMany({ where: { id, status: 'SCHEDULED' } });
+    if (!deleted.count) throw new ConflictException('This package is no longer upcoming. Reload to see its current state.');
     return { deleted: true };
   }
 }

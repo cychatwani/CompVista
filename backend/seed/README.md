@@ -26,3 +26,9 @@ The input is one JSON object. See [demo.json](demo.json) for a complete example.
 One `organization_role_permissions` row is created per role. A generated email keeps its sequence number across reruns, and its name is selected deterministically from the supplied lists. Existing passwords are never changed. Passwords are stored only in the ignored, access-restricted `backend/seed/generated/<organization-slug>/credentials.json` file. This command is for development only and does not expose an HTTP endpoint.
 
 Pass `--reset-passwords` to replace existing seeded users? passwords with new random values. The organization credential file is updated after each reset; ordinary reruns preserve passwords.
+
+## Compensation
+
+Every organization gets the default component catalog (Basic, HRA, Special Allowance, Employer PF, Employee PF). Every seeded person, including the admin and HR users, gets an initial ACTIVE INR package effective 2026-04-01, created by the admin. Monthly Basic is chosen deterministically within the role band (admin 150,000–200,000; HR 60,000–90,000; employee 25,000–70,000). HRA is 40% of Basic, Special Allowance is 20–40% of Basic, and both PF items are 12% of Basic. People who already have applied compensation are skipped. The seed fails if any employee profile in the organization ends without an active package.
+
+The employee role can only view its own compensation. `roles.employee.permissions` may not grant anything else, and the backend denies management endpoints to employees regardless of their permission row. Every signed-in member reads their own applied packages through `GET /me/compensation` (the **My compensation** page at `/app/my-compensation`).

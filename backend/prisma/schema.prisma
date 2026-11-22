@@ -119,6 +119,8 @@ model user {
   emailVerificationOtp email_verification_otp?
   totpEnrollmentDecision totp_enrollment_decision?
   createdCompensation employee_compensation[]
+  submittedCompensation employee_compensation[] @relation("CompensationSubmitter")
+  decidedCompensation employee_compensation[] @relation("CompensationDecider")
 }
 
 model totp_enrollment_decision {
@@ -173,11 +175,22 @@ enum compensation_status {
   DRAFT
   ACTIVE
   SUPERSEDED
+  PENDING_APPROVAL
+  SCHEDULED
 }
 
 enum compensation_calculation_type {
   FIXED
   PERCENTAGE_OF_BASE
+}
+
+enum compensation_frequency {
+  MONTHLY
+  QUARTERLY
+  TRIANNUAL
+  HALF_YEARLY
+  ANNUAL
+  ONE_TIME
 }
 
 model currency {
@@ -197,6 +210,8 @@ model compensation_component_definition {
   category compensation_category
   is_basic Boolean @default(false)
   is_active Boolean @default(true)
+  default_frequency compensation_frequency @default(MONTHLY)
+  deleted_at DateTime? @db.Timestamptz(6)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
   organization organization @relation(fields: [organization_id], references: [id], onDelete: Restrict)
@@ -218,10 +233,18 @@ model employee_compensation {
   created_by String
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
+  submitted_by String?
+  submitted_at DateTime? @db.Timestamptz(6)
+  decided_by String?
+  decided_at DateTime? @db.Timestamptz(6)
+  decision_note String?
+  change_requests Json?
   organization organization @relation(fields: [organization_id], references: [id], onDelete: Restrict)
   employee employee @relation(fields: [employee_id, organization_id], references: [id, organizationId], onDelete: Restrict)
   currency currency @relation(fields: [currency_code], references: [code], onDelete: Restrict)
   creator user @relation(fields: [created_by], references: [id], onDelete: Restrict)
+  submitter user? @relation("CompensationSubmitter", fields: [submitted_by], references: [id], onDelete: Restrict)
+  decider user? @relation("CompensationDecider", fields: [decided_by], references: [id], onDelete: Restrict)
   items employee_compensation_item[]
 
   @@index([organization_id, employee_id, created_at(sort: Desc)], map: "employee_compensation_employee_idx")
@@ -235,6 +258,9 @@ model employee_compensation_item {
   fixed_amount Decimal? @db.Decimal(20, 4)
   percentage Decimal? @db.Decimal(9, 4)
   resolved_monthly_amount Decimal @db.Decimal(20, 4)
+  frequency compensation_frequency @default(MONTHLY)
+  resolved_amount Decimal @db.Decimal(20, 4)
+  annual_amount Decimal @db.Decimal(20, 4)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
   compensation employee_compensation @relation(fields: [compensation_id], references: [id], onDelete: Cascade)
@@ -269,3 +295,4 @@ model organization_role_permissions {
   requireTotp          Boolean           @default(false)
   organization_role    organization_role @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
+

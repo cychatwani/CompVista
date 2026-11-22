@@ -68,7 +68,7 @@ test('compensation package writes, isolation, conflicts, and immutable history o
     await assert.rejects(() => prisma.employee_compensation_item.update({ where: { id: active.package!.items[0].id }, data: { resolved_monthly_amount: '1' } }));
     await assert.rejects(() => prisma.$transaction(async (tx) => {
       const invalid = await tx.employee_compensation.create({ data: { id: randomUUID(), organization_id: orgA, employee_id: employeeId, currency_code: 'INR', status: 'DRAFT', effective_from: new Date('2027-01-01'), created_by: userId } });
-      await tx.employee_compensation_item.create({ data: { id: randomUUID(), compensation_id: invalid.id, component_definition_id: otherId, calculation_type: 'FIXED', fixed_amount: '1', resolved_monthly_amount: '1' } });
+      await tx.employee_compensation_item.create({ data: { id: randomUUID(), compensation_id: invalid.id, component_definition_id: otherId, calculation_type: 'FIXED', fixed_amount: '1', resolved_monthly_amount: '1', resolved_amount: '1', annual_amount: '12' } });
     }));
     assert.equal(await prisma.employee_compensation.count({ where: { employee_id: employeeId } }), 1);
   } finally { await prisma.$disconnect(); }
