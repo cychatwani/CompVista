@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { IconAlertCircle, IconChevronDown, IconRefresh } from '@tabler/icons-react';
 import SidebarDemo from '@/components/sidebar-demo';
+import { Flag } from '@/components/flag';
 import { domain, formatMoney, frequencyShort, type Currency, type Definition, type EmployeeRecord, type Frequency, type Item, type Package } from './api';
 
 type OwnPackage = Package & { currency: Currency };
@@ -42,7 +43,8 @@ export function MyCompensation() {
   useEffect(() => { queueMicrotask(load); }, [load]);
 
   const past = record?.history.filter((row) => row.id !== record.active?.id) ?? [];
-  const subtitle = record ? [record.employee.displayName, record.employee.organization?.name].filter(Boolean).join(' · ') : 'Your pay, explained line by line';
+  const employee = record?.employee;
+  const subtitle = employee ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">{[employee.displayName, employee.jobTitle, employee.department?.name, employee.organization?.name].filter(Boolean).join(' · ')}{employee.countryCode && <span className="inline-flex items-center gap-1.5"><span aria-hidden="true">·</span><Flag code={employee.countryCode} />{employee.country?.name ?? employee.countryCode}</span>}</span> : 'Your pay, explained line by line';
 
   return <SidebarDemo title="My compensation" subtitle={subtitle} background="fluted-bg">
     <div className="mt-8 w-full tabular-nums">

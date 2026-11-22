@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { IconArrowLeft, IconChartBar, IconChecklist, IconLogout, IconUsersGroup, IconWallet } from "@tabler/icons-react";
+import { IconArrowLeft, IconChartBar, IconChartDots, IconChecklist, IconLogout, IconUsersGroup, IconWallet } from "@tabler/icons-react";
 import { Sidebar, SidebarBody } from "@/components/ui/sidebar";
 
 type Capabilities = { canViewOthers: boolean; canManageOthers: boolean; canViewOwn: boolean; canApprove?: boolean; pendingApprovals?: number };
@@ -20,9 +20,10 @@ const navigation = [
   { href: "/app/compensation", label: "Manage compensation", icon: IconUsersGroup, management: true, exact: false },
   { href: "/app/approvals", label: "Approvals", icon: IconChecklist, management: false, approver: true, exact: true },
   { href: "/app", label: "Dashboard", icon: IconChartBar, management: true, exact: true },
+  { href: "/app/insights", label: "Insights", icon: IconChartDots, management: true, exact: true },
 ] as { href: string; label: string; icon: typeof IconWallet; management: boolean; approver?: boolean; exact: boolean }[];
 
-export default function SidebarDemo({ title = 'Dashboard', subtitle = 'Your compensation workspace', back, actions, children, background = 'bg-[#FAFCFB]' }: { title?: string; subtitle?: string; back?: { href: string; label: string }; actions?: ReactNode; children?: ReactNode; background?: string }) {
+export default function SidebarDemo({ title = 'Dashboard', subtitle = 'Your compensation workspace', back, actions, children, background = 'bg-[#FAFCFB]' }: { title?: string; subtitle?: ReactNode; back?: { href: string; label: string }; actions?: ReactNode; children?: ReactNode; background?: string }) {
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
@@ -44,9 +45,9 @@ export default function SidebarDemo({ title = 'Dashboard', subtitle = 'Your comp
   const itemClass = (active: boolean) => `group flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)] ${active ? "bg-white text-[var(--deep-teal)] shadow-[0_1px_2px_rgba(15,76,92,.06),0_2px_8px_-2px_rgba(15,76,92,.10)] ring-1 ring-[var(--rule)]" : "text-[var(--muted-text)] hover:bg-[#E6EFED] hover:text-[var(--charcoal)]"}`;
 
   return (
-    <div className="flex min-h-dvh w-full flex-col bg-[var(--mist)] md:flex-row">
+    <div className="flex min-h-dvh w-full flex-col bg-[#F4F8F7] md:flex-row">
       <Sidebar open={open} setOpen={setOpen} animate={false}>
-        <SidebarBody className="w-[248px] border-r border-[var(--rule)] bg-[#F4F8F7] px-4 py-6">
+        <SidebarBody className="w-[248px] bg-[#F4F8F7] px-4 py-6">
           <div className="flex h-full flex-col">
             <Link href="/app/my-compensation" className="flex h-10 items-center gap-2.5 rounded-lg px-2 focus-visible:outline-2 focus-visible:outline-[var(--deep-teal)]">
               <Image src="/brand/symbol/svg/compvista-symbol-color.svg" alt="" width={26} height={26} className="shrink-0" priority />
@@ -73,13 +74,13 @@ export default function SidebarDemo({ title = 'Dashboard', subtitle = 'Your comp
         </SidebarBody>
       </Sidebar>
 
-      <main className={`min-w-0 flex-1 ${background}`}>
+      <main className={`min-w-0 flex-1 md:border-l md:border-[var(--rule)] ${background}`}>
         <div className="mx-auto w-full max-w-[1240px] px-6 pb-16 pt-8 sm:px-10 md:pt-12 lg:px-14">
           <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 border-b border-[var(--rule)] pb-6">
             <div className="min-w-0">
               {back && <Link href={back.href} className="mb-3 inline-flex items-center gap-1.5 rounded text-sm font-medium text-[var(--muted-text)] underline-offset-4 hover:text-[var(--deep-teal)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]"><IconArrowLeft aria-hidden="true" size={15} stroke={1.75} />{back.label}</Link>}
               <h1 className="text-balance font-[family-name:var(--font-manrope)] text-[28px] font-semibold leading-tight tracking-[-0.025em] text-[var(--charcoal)] sm:text-[32px]">{title}</h1>
-              <p className="mt-1.5 text-sm text-[var(--muted-text)]">{subtitle}</p>
+              <div className="mt-1.5 text-sm text-[var(--muted-text)]">{subtitle}</div>
             </div>
             {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
           </header>

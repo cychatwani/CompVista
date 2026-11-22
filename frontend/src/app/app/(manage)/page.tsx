@@ -1,5 +1,6 @@
-import { Dashboard } from '@/components/compensation/dashboard';
+import { Suspense } from 'react';
+import { Dashboard } from '@/components/analytics/pages';
 
 export default function AppPage() {
-  return <Dashboard />;
+  return <Suspense><Dashboard /></Suspense>;
 }

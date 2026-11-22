@@ -189,7 +189,7 @@ export class CompensationController {
     const employee = await this.self(request);
     const rows = await this.prisma.employee_compensation.findMany({ where: { employee_id: employee.id, organization_id: employee.organizationId, status: { in: ['ACTIVE', 'SUPERSEDED'] } }, include: { currency: true, items: { include: { definition: true }, orderBy: { created_at: 'asc' } } }, orderBy: { effective_from: 'desc' } });
     const active = rows.find((row) => row.status === 'ACTIVE');
-    return { employee: { id: employee.id, displayName: employee.displayName, organizationId: employee.organizationId, organization: { name: employee.organization.name } }, active: active ? this.withSummary(active) : null, history: rows.map((row) => this.withSummary(row)) };
+    return { employee: { id: employee.id, displayName: employee.displayName, organizationId: employee.organizationId, organization: { name: employee.organization.name }, countryCode: employee.countryCode, country: employee.country, department: employee.department, jobTitle: employee.jobTitle }, active: active ? this.withSummary(active) : null, history: rows.map((row) => this.withSummary(row)) };
   }
 
   @Get('currencies')
@@ -300,7 +300,7 @@ export class CompensationController {
       upcoming: upcoming ? this.withSummary(upcoming) : null,
       drafts: packages.filter((item) => item.status === 'DRAFT').map((item) => this.withSummary(item)),
       pending: packages.filter((item) => item.status === 'PENDING_APPROVAL').map((item) => ({ ...this.withSummary(item), canDecide: canApprove(actor.workflow, employee.userId, item.submitted_by) })),
-      permissions: { canPropose: propose, submitOutcome: propose ? submissionOutcome(actor.workflow) : null, canCancelUpcoming: canApprove(actor.workflow, employee.userId, null) },
+      permissions: { canPropose: propose, submitOutcome: propose ? submissionOutcome(actor.workflow) : null, canCancelUpcoming: canApprove(actor.workflow, employee.userId, null), canEditProfile: canPropose(actor.workflow, null) },
     };
   }
 

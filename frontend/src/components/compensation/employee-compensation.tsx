@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { IconAlertCircle, IconCheck, IconCircleCheck, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import SidebarDemo, { refreshSidebar } from '@/components/sidebar-demo';
 import { ChangeRequests, PendingCard, type ChangeRequest } from './pending-review';
+import { Flag } from '@/components/flag';
+import { ProfileCard, levelLabel } from './profile-card';
 import { domain, formatMoney, frequencyOptions, frequencyShort, type Currency, type Definition, type EmployeeRecord, type Frequency, type Package } from './api';
 
-type Permissions = { canPropose: boolean; submitOutcome: 'ACTIVE' | 'PENDING_APPROVAL' | null; canCancelUpcoming: boolean };
+type Permissions = { canPropose: boolean; submitOutcome: 'ACTIVE' | 'PENDING_APPROVAL' | null; canCancelUpcoming: boolean; canEditProfile?: boolean };
 type Record_ = { employee: EmployeeRecord; active: Package | null; upcoming: Package | null; drafts: Package[]; pending: Package[]; permissions: Permissions };
 type Row = { key: string; componentDefinitionId: string; calculationType: 'FIXED' | 'PERCENTAGE_OF_BASE'; value: string; frequency: Frequency };
 type Preview = { items: { componentDefinitionId: string; resolvedAmount: string; annualAmount: string; frequency: Frequency }[]; monthlyGross: string; monthlyEmployerContributions: string; monthlyEmployeeDeductions: string; monthlyCtc: string; annualCtc: string; oneTimePayments: string };
@@ -91,7 +93,7 @@ export function EmployeeCompensation({ employeeId }: { employeeId: string }) {
     if (from) { setWizard({ id: from.id, version: from.version, currencyCode: from.currency_code, effectiveFrom: from.effective_from.slice(0, 10), effectiveTo: from.effective_to?.slice(0, 10) ?? '', ...usable(from), note: '', changeRequests: from.change_requests, returnNote: from.decision_note }); return; }
     // A revision starts from the current package minus anything already paid out once.
     const revision = (pkg: Package) => { const base = usable(pkg); const paidOnce = pkg.items.filter((item) => item.frequency === 'ONE_TIME'); return { rows: base.rows.filter((row) => row.frequency !== 'ONE_TIME'), removed: base.removed, carriedOver: paidOnce.map((item) => item.definition.name) }; };
-    setWizard({ id: null, version: null, currencyCode: active?.currency_code ?? 'INR', effectiveFrom: nextMonthStart(active?.effective_from), effectiveTo: '', ...(active ? revision(active) : { rows: templateRows(definitions), removed: [], carriedOver: [] }), note: '' });
+    setWizard({ id: null, version: null, currencyCode: active?.currency_code ?? record?.employee.country?.currency_code ?? 'INR', effectiveFrom: nextMonthStart(active?.effective_from), effectiveTo: '', ...(active ? revision(active) : { rows: templateRows(definitions), removed: [], carriedOver: [] }), note: '' });
   }
   async function finished(outcome: string) {
     refreshSidebar();
@@ -101,10 +103,13 @@ export function EmployeeCompensation({ employeeId }: { employeeId: string }) {
   }
 
   const name = record?.employee.displayName ?? 'Employee compensation';
-  return <SidebarDemo title={name} subtitle={record?.employee.organization?.name ?? 'Compensation package'} back={{ href: '/app/compensation', label: 'All people' }}>
+  const employee = record?.employee;
+  const subtitle = employee ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1"><span className="inline-flex items-center gap-1.5"><Flag code={employee.countryCode} />{employee.country?.name ?? employee.countryCode}</span>{employee.department && <><span aria-hidden="true">·</span>{employee.department.name}</>}{employee.jobTitle && <><span aria-hidden="true">·</span>{employee.jobTitle}{employee.jobLevel ? ` (${levelLabel[employee.jobLevel] ?? employee.jobLevel})` : ''}</>}</span> : 'Compensation package';
+  return <SidebarDemo title={name} subtitle={subtitle} back={{ href: '/app/compensation', label: 'All people' }}>
     <div className="mt-8 w-full space-y-8 tabular-nums">
       {error && <Alert tone="error">{error}</Alert>}
       {notice && <Alert tone="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {record && !wizard && <ProfileCard key={`${record.employee.id}-${record.employee.countryCode}-${record.employee.departmentId}`} employee={record.employee} canEdit={!!record.permissions.canEditProfile} packageCurrency={record.active?.currency_code} onSaved={(updated) => setRecord({ ...record, employee: updated })} />}
       {record && (wizard
         ? <Wizard key={wizard.id ?? 'new'} initial={wizard} record={record} definitions={definitions} currencies={currencies} employeeId={employeeId} onCancel={() => setWizard(null)} onDone={finished} />
         : <Overview record={record} history={history} currencies={currencies} onStart={start} onChanged={finished} />)}
