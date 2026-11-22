@@ -114,6 +114,23 @@ async function main(): Promise<void> {
       counts.organizationsCreated++;
     } else counts.organizationsSkipped++;
 
+    if (org.slug === 'bandwidth-holdings') {
+      const components = [
+        { code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
+        { code: 'HRA', name: 'House Rent Allowance', category: 'EARNING', is_basic: false },
+        { code: 'SPECIAL', name: 'Special Allowance', category: 'EARNING', is_basic: false },
+        { code: 'EMPLOYER_PF', name: 'Employer PF', category: 'EMPLOYER_CONTRIBUTION', is_basic: false },
+        { code: 'EMPLOYEE_PF', name: 'Employee PF', category: 'EMPLOYEE_DEDUCTION', is_basic: false },
+      ] as const;
+      for (const component of components) {
+        await prisma.compensation_component_definition.upsert({
+          where: { organization_id_code: { organization_id: org.id, code: component.code } },
+          create: { id: randomUUID(), organization_id: org.id, ...component },
+          update: {},
+        });
+      }
+    }
+
     for (const key of ['admin', 'hr', 'employee'] as const) {
       const requested = plan.roles[key];
       const flags = { ...defaultPermissions[key], ...requested?.permissions };
