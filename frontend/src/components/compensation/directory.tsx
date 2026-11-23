@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { IconAlertCircle, IconBuilding, IconChevronLeft, IconChevronRight, IconSearch, IconSettings, IconX } from '@tabler/icons-react';
+import { IconAlertCircle, IconBuilding, IconDownload, IconLoader2, IconChevronLeft, IconChevronRight, IconSearch, IconSettings, IconX } from '@tabler/icons-react';
 import SidebarDemo from '@/components/sidebar-demo';
 import { Flag } from '@/components/flag';
 import { Picker } from '@/components/analytics/ui';
@@ -52,6 +52,23 @@ export function CompensationDirectory() {
   const [data, setData] = useState<Page | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  // Downloads every row matching the current filters and sort, not just this page.
+  async function exportCsv() {
+    setExporting(true); setError('');
+    try {
+      const query = new URLSearchParams({ sort: state.sort });
+      for (const key of ['q', 'status', 'role', 'department', 'country', 'currency', 'ctcMin', 'ctcMax'] as const) if (state[key]) query.set(key, state[key]);
+      const response = await fetch(`/api/domain/employees/directory/export?${query}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message ?? 'Export failed');
+      const url = URL.createObjectURL(await response.blob());
+      const link = Object.assign(document.createElement('a'), { href: url, download: `compvista-people-${new Date().toISOString().slice(0, 10)}.csv` });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setExporting(false); }
+  }
 
   function update(change: Partial<typeof state>) {
     const next = { ...state, page: 1, ...change };
@@ -106,7 +123,7 @@ export function CompensationDirectory() {
             </button>;
           })}
         </div>
-        <span className="flex flex-wrap gap-2"><Link href="/app/compensation/departments" className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#B7CAC7] bg-white px-4 text-sm font-semibold text-[var(--deep-teal)] hover:bg-[#EEF4F3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]"><IconBuilding aria-hidden="true" size={18} stroke={1.75} />Departments</Link>
+        <span className="flex flex-wrap gap-2"><button type="button" onClick={() => void exportCsv()} disabled={exporting || !data?.total} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#B7CAC7] bg-white px-4 text-sm font-semibold text-[var(--deep-teal)] hover:bg-[#EEF4F3] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]">{exporting ? <IconLoader2 aria-hidden="true" size={18} className="motion-safe:animate-spin" /> : <IconDownload aria-hidden="true" size={18} stroke={1.75} />}{exporting ? "Exporting…" : `Export ${data?.total ? data.total.toLocaleString("en-US") : ""} to CSV`}</button><Link href="/app/compensation/departments" className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#B7CAC7] bg-white px-4 text-sm font-semibold text-[var(--deep-teal)] hover:bg-[#EEF4F3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]"><IconBuilding aria-hidden="true" size={18} stroke={1.75} />Departments</Link>
         <Link href="/app/compensation/components" className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#B7CAC7] bg-white px-4 text-sm font-semibold text-[var(--deep-teal)] hover:bg-[#EEF4F3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]"><IconSettings aria-hidden="true" size={18} stroke={1.75} />Component definitions</Link></span>
       </div>
 

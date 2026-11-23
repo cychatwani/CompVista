@@ -110,6 +110,12 @@ test('analytics aggregates per currency, excludes deductions, filters, and stays
     assert.deepEqual(directory.items.map((row) => row.displayName), ['Asha', 'Bala']);
     assert.equal((await workforce.directory(request({ country: 'US' }))).total, 2);
     assert.equal((await workforce.directory(request({ department: departments[orgA].FIN, status: 'none' }))).items[0].displayName, 'Evan');
+    // The CSV export contains exactly the filtered rows (all pages) with annual amounts.
+    const csv = await workforce.exportDirectory(request({ currency: 'INR', sort: 'ctc-desc' }));
+    const lines = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+    assert.equal(lines[0].split(',')[0], 'employee_code');
+    assert.deepEqual(lines.slice(1).map((line) => line.split(',')[1]), ['Asha', 'Bala', 'Chitra']);
+    assert.ok(lines[1].includes(',INR,1344000.00,1200000.00,100000.00,2026-04-01,'));
 
     as({ userId, organizationId: orgB });
     const other = await analytics.analytics(request());

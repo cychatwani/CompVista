@@ -2,6 +2,7 @@ import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
 import { Prisma, type PrismaClient } from './generated/prisma/client.js';
 import { calculateCompensation } from './compensation-calculation.js';
+import { toCsv } from './csv.js';
 import {
   defaultComponentCatalog, defaultPermissions, departmentCatalog, packageEffectiveFrom, workforceComponents, workforcePlan,
   type PlannedEmployee,
@@ -194,11 +195,10 @@ async function removeOrganization(prisma: PrismaClient, organizationId: string) 
   }, { timeout: 120_000 });
 }
 
-const csvCell = (value: string) => /[",\n\r]/.test(value) || /^[=+\-@]/.test(value) ? `"${(/^[=+\-@]/.test(value) ? `'${value}` : value).replace(/"/g, '""')}"` : value;
 
 /** CSV of first-login credentials. Cells that look like formulas are neutralized for spreadsheets. */
 export function credentialsCsv(credentials: Credential[], loginUrl: string): string {
   const header = ['name', 'email', 'role', 'temporary_password', 'employee_code', 'department', 'country', 'job_title', 'login_url'];
   const rows = credentials.map((row) => [row.name, row.email, row.role, row.password, row.employeeCode, row.department, row.country, row.jobTitle, loginUrl]);
-  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  return toCsv(header, rows);
 }

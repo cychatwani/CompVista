@@ -7,7 +7,7 @@
     "typecheck": "tsc -p tsconfig.check.json",
     "start": "node dist/main.js",
     "lint": "eslint src test scripts --ext .ts",
-    "test": "node --import tsx --test test/hello.test.ts test/seed-plan.test.ts test/password-policy.test.ts test/email-otp.test.ts test/totp-policy.test.ts test/compensation-calculation.test.ts test/compensation-access.test.ts test/compensation-workflow.test.ts test/compensation-change-requests.test.ts test/workforce-plan.test.ts test/analytics.test.ts test/provisioning.test.ts",
+    "test": "node --import tsx --test test/hello.test.ts test/seed-plan.test.ts test/password-policy.test.ts test/email-otp.test.ts test/totp-policy.test.ts test/compensation-calculation.test.ts test/compensation-access.test.ts test/compensation-workflow.test.ts test/compensation-change-requests.test.ts test/workforce-plan.test.ts test/analytics.test.ts test/provisioning.test.ts test/csv.test.ts",
     "test:integration": "node --import tsx --test test/seed.integration.test.ts test/compensation.integration.test.ts test/analytics.integration.test.ts test/provisioning.integration.test.ts",
     "db:check": "tsx scripts/check-db.ts",
     "db:migrate": "node scripts/flyway.mjs migrate",

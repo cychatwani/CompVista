@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, Header, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
 import { Prisma } from './generated/prisma/client.js';
 import { PrismaService } from './prisma/prisma.service.js';
 import { CompensationController } from './compensation.controller.js';
+import { toCsv } from './csv.js';
 
 type RequestWithQuery = { headers: { cookie?: string }; query?: Record<string, string | undefined> };
 type DepartmentBody = { name?: string; code?: string; description?: string | null; isActive?: boolean };
@@ -10,6 +11,7 @@ type ProfileBody = { departmentId?: string | null; countryCode?: string; jobTitl
 
 export const jobLevels = ['JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MANAGER', 'DIRECTOR'] as const;
 export const employmentStatuses = ['ACTIVE', 'PROBATION', 'ON_LEAVE', 'NOTICE_PERIOD'] as const;
+const exportLimit = 25_000;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sorts = {
   name: Prisma.sql`display_name ASC, id`,
@@ -113,15 +115,10 @@ export class WorkforceController {
   }
 
   /**
-   * Paginated directory: search, filter by role, package status, department, country,
-   * package currency and annual CTC range, then sort. Computed in SQL so it stays fast
-   * with tens of thousands of people.
+   * Shared filter and query construction for the directory page and its CSV export, so the
+   * export always contains exactly what the filtered directory shows.
    */
-  @Get('employees/directory')
-  async directory(@Req() request: RequestWithQuery) {
-    const actor = await this.compensation.actor(request, 'read');
-    const query = request.query ?? {};
-    const org = actor.organizationId;
+  private directoryQuery(org: string, query: Record<string, string | undefined>) {
     const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
     const pageSize = Math.min(100, Math.max(5, Number.parseInt(query.pageSize ?? '10', 10) || 10));
     const search = (query.q ?? '').trim().slice(0, 100);
@@ -180,6 +177,18 @@ export class WorkforceController {
         WHERE ${Prisma.join(rowFilters, ' AND ')}
       )`;
     const statusFilter = status === 'active' ? Prisma.sql`ctc IS NOT NULL` : status === 'none' ? Prisma.sql`ctc IS NULL` : status === 'draft' ? Prisma.sql`drafts > 0` : status === 'pending' ? Prisma.sql`pending > 0` : Prisma.sql`TRUE`;
+    return { rows, statusFilter, sort, page, pageSize };
+  }
+
+  /**
+   * Paginated directory: search, filter by role, package status, department, country,
+   * package currency and annual CTC range, then sort. Computed in SQL so it stays fast
+   * with tens of thousands of people.
+   */
+  @Get('employees/directory')
+  async directory(@Req() request: RequestWithQuery) {
+    const actor = await this.compensation.actor(request, 'read');
+    const { rows, statusFilter, sort, page, pageSize } = this.directoryQuery(actor.organizationId, request.query ?? {});
     const [counts, list] = await Promise.all([
       this.prisma.$queryRaw<{ all: number; active: number; none: number; draft: number; pending: number }[]>(Prisma.sql`${rows}
         SELECT count(*)::int AS "all", count(ctc)::int AS active, (count(*) - count(ctc))::int AS none,
@@ -206,6 +215,27 @@ export class WorkforceController {
       })),
       page: Math.min(page, pages), pageSize, total, pages, counts: counts[0],
     };
+  }
+
+  /** The filtered directory as CSV (every matching row, not just one page). Same permission as viewing it. */
+  @Get('employees/directory/export')
+  @Header('content-type', 'text/csv; charset=utf-8')
+  @Header('cache-control', 'no-store')
+  async exportDirectory(@Req() request: RequestWithQuery) {
+    const actor = await this.compensation.actor(request, 'read');
+    const { rows, statusFilter, sort } = this.directoryQuery(actor.organizationId, request.query ?? {});
+    const list = await this.prisma.$queryRaw<(Omit<DirectoryRow, 'total' | 'currency_name' | 'currency_symbol' | 'decimal_places'> & { annual_gross: string | null; annual_deductions: string | null })[]>(Prisma.sql`${rows}
+      SELECT rows.id, display_name, email, employee_code, job_title, job_level, employment_status, country_code, country_name, department_id, department_name, role,
+        currency_code, effective_from, round(ctc, COALESCE(cur.decimal_places, 2))::text AS annual_ctc, round(gross, COALESCE(cur.decimal_places, 2))::text AS annual_gross,
+        round(gross / 12, COALESCE(cur.decimal_places, 2))::text AS monthly_gross, drafts, pending, upcoming
+      FROM rows LEFT JOIN currency cur ON cur.code = rows.currency_code
+      WHERE ${statusFilter}
+      ORDER BY ${sort}
+      LIMIT ${exportLimit}`);
+    return '\uFEFF' + toCsv(
+      ['employee_code', 'name', 'email', 'role', 'department', 'country', 'job_title', 'job_level', 'employment_status', 'currency', 'annual_ctc', 'annual_gross', 'monthly_gross', 'effective_from', 'pending_approvals', 'drafts', 'upcoming_package'],
+      list.map((row) => [row.employee_code, row.display_name, row.email, row.role ?? 'employee', row.department_name, row.country_code, row.job_title, row.job_level, row.employment_status, row.currency_code, row.annual_ctc, row.annual_gross, row.monthly_gross, row.effective_from ? row.effective_from.toISOString().slice(0, 10) : null, row.pending, row.drafts, row.upcoming ? 'yes' : 'no']),
+    );
   }
 
   private async countMatching(rows: Prisma.Sql, statusFilter: Prisma.Sql): Promise<number> {
