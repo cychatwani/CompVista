@@ -88,15 +88,15 @@ export const DesktopSidebar = ({
     <>
       <motion.div
         className={cn(
-          "h-full px-4 py-4 hidden md:flex md:flex-col bg-[#F4F8F7] w-[300px] shrink-0",
+          "h-full w-[300px] px-4 py-4 hidden md:sticky md:top-0 md:h-dvh md:flex md:flex-col bg-[#F4F8F7] shrink-0",
           className
         )}
-        animate={{
-          width: animate ? (open ? "300px" : "60px") : "300px",
-        }}
-        transition={shouldReduceMotion ? { duration: 0 } : undefined}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        {...(animate ? {
+          animate: { width: open ? "300px" : "60px" },
+          transition: shouldReduceMotion ? { duration: 0 } : undefined,
+          onMouseEnter: () => setOpen(true),
+          onMouseLeave: () => setOpen(false),
+        } : {})}
         {...props}
       >
         {children}
@@ -116,11 +116,13 @@ export const MobileSidebar = ({
     <>
       <div
         className={cn(
-          "h-10 px-4 py-4 flex flex-row md:hidden items-center justify-between border-b border-[#DAE5E3] bg-[#F4F8F7] w-full"
+          "h-14 px-4 flex flex-row md:hidden items-center justify-between border-b border-[#DAE5E3] bg-[#F4F8F7] w-full"
         )}
         {...props}
       >
-        <div className="flex justify-end z-20 w-full">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/logos/svg/compvista-primary-dark.svg" alt="CompVista" width={922} height={176} className="h-auto w-[150px]" />
+        <div className="flex justify-end z-20">
           <button type="button" aria-label="Open sidebar" aria-expanded={open} onClick={() => setOpen(true)} className="rounded-md p-1 text-[var(--deep-teal)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]">
             <IconMenu2 aria-hidden="true" />
           </button>

@@ -8,6 +8,7 @@ const definitions: CalculationInput['definitions'] = [
   { id: 'special', category: 'EARNING', isBasic: false, isActive: true },
   { id: 'employer', category: 'EMPLOYER_CONTRIBUTION', isBasic: false, isActive: true },
   { id: 'employee', category: 'EMPLOYEE_DEDUCTION', isBasic: false, isActive: true },
+  { id: 'bonus', category: 'EARNING', isBasic: false, isActive: true },
 ];
 const fixed = (componentDefinitionId: string, fixedAmount: string) => ({ componentDefinitionId, calculationType: 'FIXED' as const, fixedAmount });
 const percent = (componentDefinitionId: string, percentage: string) => ({ componentDefinitionId, calculationType: 'PERCENTAGE_OF_BASE' as const, percentage });
@@ -61,10 +62,39 @@ test('invalid percentages, rule shapes, inactive definitions, and arbitrary refe
 
 test('historical totals can be read from stored resolved values after a definition is deactivated', () => {
   const summary = summarizeResolvedCompensation({ code: 'USD', decimalPlaces: 2 }, [
-    { category: 'EARNING', resolvedMonthlyAmount: '500.00' },
-    { category: 'EMPLOYER_CONTRIBUTION', resolvedMonthlyAmount: '10.00' },
-    { category: 'EMPLOYEE_DEDUCTION', resolvedMonthlyAmount: '20.00' },
+    { category: 'EARNING', resolvedAmount: '500.00', frequency: 'MONTHLY' },
+    { category: 'EMPLOYER_CONTRIBUTION', resolvedAmount: '10.00', frequency: 'MONTHLY' },
+    { category: 'EMPLOYEE_DEDUCTION', resolvedAmount: '20.00', frequency: 'MONTHLY' },
   ]);
   assert.equal(summary.monthlyCtc, '510.00');
   assert.equal(summary.annualCtc, '6120.00');
+});
+
+test('frequencies annualize per payment; one-time stays outside CTC', () => {
+  const result = calculateCompensation(input([
+    fixed('basic', '1000'),
+    { ...percent('hra', '50'), frequency: 'QUARTERLY' },
+    { ...fixed('special', '300'), frequency: 'TRIANNUAL' },
+    { ...fixed('bonus', '5000'), frequency: 'ONE_TIME' },
+  ]));
+  const by = (id: string) => result.items.find((item) => item.componentDefinitionId === id)!;
+  assert.equal(by('hra').resolvedAmount, '500.00');
+  assert.equal(by('hra').annualAmount, '2000.00');
+  assert.equal(by('special').annualAmount, '900.00');
+  assert.equal(by('bonus').annualAmount, '0.00');
+  assert.equal(result.annualGross, '14900.00');
+  assert.equal(result.annualCtc, '14900.00');
+  assert.equal(result.monthlyGross, '1241.67');
+  assert.equal(result.oneTimePayments, '5000.00');
+});
+
+test('basic salary must be monthly and deductions cannot be one-time', () => {
+  assert.throws(() => calculateCompensation(input([{ ...fixed('basic', '1000'), frequency: 'ANNUAL' }])), /Basic Salary must be paid monthly/);
+  assert.throws(() => calculateCompensation(input([fixed('basic', '1000'), { ...fixed('employee', '10'), frequency: 'ONE_TIME' }])), /cannot be one-time/);
+});
+
+test('half-yearly and annual items count 2 and 1 payments per year', () => {
+  const result = calculateCompensation(input([fixed('basic', '1000'), { ...fixed('special', '600'), frequency: 'HALF_YEARLY' }, { ...fixed('bonus', '1200'), frequency: 'ANNUAL' }]));
+  assert.equal(result.annualGross, '14400.00');
+  assert.equal(result.monthlyCtc, '1200.00');
 });

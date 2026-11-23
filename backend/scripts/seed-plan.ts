@@ -3,11 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export type SeedRole = 'admin' | 'hr' | 'employee';
-export const defaultPermissions = {
-  admin: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: true, canApproveComp: true, canApproveOwnComp: true, requiresApproval: false },
-  hr: { canViewAllComp: true, canViewOwnComp: true, canProposeOthersComp: true, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
-  employee: { canViewAllComp: false, canViewOwnComp: true, canProposeOthersComp: false, canProposeOwnComp: false, canApproveComp: false, canApproveOwnComp: false, requiresApproval: true },
-} as const;
+import { defaultComponentCatalog, defaultPermissions } from '../src/workforce-plan.js';
+export { defaultComponentCatalog, defaultPermissions };
 export type PermissionFlags = { [K in keyof typeof defaultPermissions.admin]: boolean };
 export type PlannedPerson = { email: string; name: string; role: SeedRole; generated: boolean };
 export type SeedPlan = { organization: { name: string; slug: string }; people: PlannedPerson[]; roles: Partial<Record<SeedRole, { displayName?: string; permissions?: Partial<PermissionFlags> }>> };
@@ -83,6 +80,9 @@ export function parseSeedPlan(value: unknown): SeedPlan {
         if (!(flag in defaultPermissions.admin) || typeof enabled !== 'boolean') throw new Error(`Invalid boolean permission roles.${key}.permissions.${flag}`);
         (flags as Record<string, boolean>)[flag] = enabled;
       }
+      if (key === 'employee' && (flags.canViewOwnComp === false || Object.entries(flags).some(([flag, enabled]) => enabled && flag !== 'canViewOwnComp' && flag !== 'requiresApproval'))) {
+        throw new Error('roles.employee may only view its own compensation');
+      }
       role.permissions = flags;
     }
     roles[key] = role;
@@ -92,4 +92,30 @@ export function parseSeedPlan(value: unknown): SeedPlan {
 
 export function loadSeedPlan(file: string): SeedPlan {
   return parseSeedPlan(JSON.parse(readFileSync(resolve(file), 'utf8')) as unknown);
+}
+
+export type CatalogCode = typeof defaultComponentCatalog[number]['code'];
+export type PlannedRule = { code: CatalogCode; calculationType: 'FIXED' | 'PERCENTAGE_OF_BASE'; fixedAmount: string | null; percentage: string | null };
+
+// Monthly Basic Salary bands in INR; each person gets a stable value inside their role's band.
+const basicBands: Record<SeedRole, { min: number; max: number }> = {
+  admin: { min: 150000, max: 200000 },
+  hr: { min: 60000, max: 90000 },
+  employee: { min: 25000, max: 70000 },
+};
+export const seedCompensationCurrency = 'INR';
+export const seedCompensationEffectiveFrom = '2026-04-01';
+
+export function plannedCompensation(slug: string, person: Pick<PlannedPerson, 'email' | 'role'>): PlannedRule[] {
+  const band = basicBands[person.role];
+  const steps = (band.max - band.min) / 500;
+  const basic = band.min + choice(`${slug}:basic:${person.email}`, steps + 1) * 500;
+  const special = Math.round(basic * (0.2 + choice(`${slug}:special:${person.email}`, 21) / 100) / 100) * 100;
+  return [
+    { code: 'BASIC', calculationType: 'FIXED', fixedAmount: basic.toFixed(2), percentage: null },
+    { code: 'HRA', calculationType: 'PERCENTAGE_OF_BASE', fixedAmount: null, percentage: '40' },
+    { code: 'SPECIAL', calculationType: 'FIXED', fixedAmount: special.toFixed(2), percentage: null },
+    { code: 'EMPLOYER_PF', calculationType: 'PERCENTAGE_OF_BASE', fixedAmount: null, percentage: '12' },
+    { code: 'EMPLOYEE_PF', calculationType: 'PERCENTAGE_OF_BASE', fixedAmount: null, percentage: '12' },
+  ];
 }

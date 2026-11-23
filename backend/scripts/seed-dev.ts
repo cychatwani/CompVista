@@ -6,7 +6,8 @@ import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { hashPassword } from 'better-auth/crypto';
 import { PrismaClient } from '../src/generated/prisma/client.js';
-import { defaultPermissions, loadSeedPlan, type PlannedPerson } from './seed-plan.js';
+import { calculateCompensation } from '../src/compensation-calculation.js';
+import { defaultComponentCatalog, defaultPermissions, loadSeedPlan, plannedCompensation, seedCompensationCurrency, seedCompensationEffectiveFrom, type PlannedPerson } from './seed-plan.js';
 
 config({ path: process.env.COMPVISTA_ENV_FILE ?? '.env' });
 if (process.env.NODE_ENV === 'production') throw new Error('Refusing development seed in production mode');
@@ -65,7 +66,7 @@ function credentials(targets: PlannedPerson[]): Record<string, string> {
 }
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
-const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, permissionsUpdated: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0, passwordsReset: 0 };
+const counts = { organizationsCreated: 0, organizationsSkipped: 0, rolesCreated: 0, rolesSkipped: 0, permissionsUpdated: 0, usersCreated: 0, usersSkipped: 0, membershipsCreated: 0, membershipsSkipped: 0, profilesCreated: 0, profilesSkipped: 0, namesUpdated: 0, passwordsReset: 0, componentsCreated: 0, compensationCreated: 0, compensationSkipped: 0 };
 
 async function main(): Promise<void> {
   const passwords = credentials(people);
@@ -114,21 +115,12 @@ async function main(): Promise<void> {
       counts.organizationsCreated++;
     } else counts.organizationsSkipped++;
 
-    if (org.slug === 'bandwidth-holdings') {
-      const components = [
-        { code: 'BASIC', name: 'Basic Salary', category: 'EARNING', is_basic: true },
-        { code: 'HRA', name: 'House Rent Allowance', category: 'EARNING', is_basic: false },
-        { code: 'SPECIAL', name: 'Special Allowance', category: 'EARNING', is_basic: false },
-        { code: 'EMPLOYER_PF', name: 'Employer PF', category: 'EMPLOYER_CONTRIBUTION', is_basic: false },
-        { code: 'EMPLOYEE_PF', name: 'Employee PF', category: 'EMPLOYEE_DEDUCTION', is_basic: false },
-      ] as const;
-      for (const component of components) {
-        await prisma.compensation_component_definition.upsert({
-          where: { organization_id_code: { organization_id: org.id, code: component.code } },
-          create: { id: randomUUID(), organization_id: org.id, ...component },
-          update: {},
-        });
-      }
+    for (const component of defaultComponentCatalog) {
+      const existing = await prisma.compensation_component_definition.findUnique({ where: { organization_id_code: { organization_id: org.id, code: component.code } } });
+      if (existing) continue;
+      if (component.is_basic && await prisma.compensation_component_definition.findFirst({ where: { organization_id: org.id, is_basic: true } })) throw new Error('Organization already has a different Basic Salary definition');
+      await prisma.compensation_component_definition.create({ data: { id: randomUUID(), organization_id: org.id, ...component } });
+      counts.componentsCreated++;
     }
 
     for (const key of ['admin', 'hr', 'employee'] as const) {
@@ -165,7 +157,7 @@ async function main(): Promise<void> {
       if (member.roleId && member.roleId !== role.id) throw new Error(`Role reference mismatch for ${person.email}`);
       const profile = await prisma.employee.findUnique({ where: { userId: user.id } });
       if (!profile) {
-        await prisma.employee.create({ data: { id: randomUUID(), userId: user.id, organizationId: org.id, displayName: person.name } });
+        await prisma.employee.create({ data: { id: randomUUID(), userId: user.id, organizationId: org.id, displayName: person.name, email: person.email, countryCode: 'IN' } });
         counts.profilesCreated++;
       } else {
         if (profile.organizationId !== org.id) throw new Error(`Employee profile organization mismatch for ${person.email}`);
@@ -179,6 +171,33 @@ async function main(): Promise<void> {
         }
       }
     }
+
+    // Every seeded person, including admin and HR, receives an initial active package.
+    const definitions = await prisma.compensation_component_definition.findMany({ where: { organization_id: org.id } });
+    const currency = await prisma.currency.findUniqueOrThrow({ where: { code: seedCompensationCurrency } });
+    for (const person of people) {
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: person.email } });
+      const profile = await prisma.employee.findUniqueOrThrow({ where: { userId: user.id } });
+      if (await prisma.employee_compensation.count({ where: { employee_id: profile.id, status: { in: ['ACTIVE', 'SUPERSEDED'] } } })) { counts.compensationSkipped++; continue; }
+      const rules = plannedCompensation(org.slug, person).map((rule) => {
+        const definition = definitions.find((item) => item.code === rule.code);
+        if (!definition?.is_active) throw new Error(`Component ${rule.code} is missing or inactive in ${org!.slug}`);
+        return { componentDefinitionId: definition.id, calculationType: rule.calculationType, fixedAmount: rule.fixedAmount, percentage: rule.percentage };
+      });
+      const result = calculateCompensation({
+        currency: { code: currency.code, decimalPlaces: currency.decimal_places, isActive: currency.is_active },
+        definitions: definitions.map((item) => ({ id: item.id, category: item.category, isBasic: item.is_basic, isActive: item.is_active })),
+        items: rules,
+      });
+      await prisma.$transaction(async (tx) => {
+        const row = await tx.employee_compensation.create({ data: { id: randomUUID(), organization_id: org!.id, employee_id: profile.id, currency_code: currency.code, status: 'DRAFT', effective_from: new Date(`${seedCompensationEffectiveFrom}T00:00:00.000Z`), created_by: admin.id } });
+        await tx.employee_compensation_item.createMany({ data: result.items.map((item) => ({ id: randomUUID(), compensation_id: row.id, component_definition_id: item.componentDefinitionId, calculation_type: item.calculationType, fixed_amount: item.fixedAmount, percentage: item.percentage, resolved_monthly_amount: item.resolvedMonthlyAmount, frequency: item.frequency, resolved_amount: item.resolvedAmount, annual_amount: item.annualAmount })) });
+        await tx.employee_compensation.update({ where: { id: row.id }, data: { status: 'ACTIVE', updated_at: new Date() } });
+      });
+      counts.compensationCreated++;
+    }
+    const withoutCompensation = await prisma.employee.count({ where: { organizationId: org.id, compensation: { none: { status: 'ACTIVE' } } } });
+    if (withoutCompensation) throw new Error(`${withoutCompensation} employee profile(s) lack active compensation`);
 
     const seededMembers = await prisma.member.findMany({ where: { organizationId: org.id }, include: { user: true } });
     if (seededMembers.length !== people.length || seededMembers.some((member) => !member.roleId || !intended.has(member.user.email))) throw new Error('Final membership verification failed');

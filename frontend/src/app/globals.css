@@ -9,8 +9,11 @@
 }
 
 :root {
-  --font-inter: Inter, Arial, sans-serif;
-  --font-manrope: Manrope, Inter, Arial, sans-serif;
+  --font-inter: var(--font-inter-loaded, Inter), Arial, sans-serif;
+  --font-manrope: var(--font-manrope-loaded, Manrope), var(--font-inter-loaded, Inter), Arial, sans-serif;
+  --jade-text: #217A6E;
+  --slate: #6B7B80;
+  --rule: #DAE5E3;
   --deep-teal: #0F4C5C;
   --teal: #1E6F7A;
   --jade: #2F9E8F;
@@ -35,4 +38,14 @@ body {
 .auth-aurora-subtle { opacity: .16; animation: aurora 120s linear infinite; }
 @keyframes mark-pulse { 50% { opacity: .72; } }
 .auth-mark { animation: mark-pulse 9s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .auth-aurora, .auth-aurora-subtle, .auth-mark { animation: none; } }
+@keyframes band-reveal { from { transform: scaleX(.35); opacity: .5; } to { transform: scaleX(1); opacity: 1; } }
+.band-reveal { transform-origin: left center; animation: band-reveal 900ms cubic-bezier(.16, 1, .3, 1) both; }
+@media (prefers-reduced-motion: reduce) { .auth-aurora, .auth-aurora-subtle, .auth-mark, .band-reveal { animation: none; } }
+
+/* Fluted glass panels: each 46px column fades from a faint teal-green edge to white. */
+.fluted-bg {
+  background-color: #FFFFFF;
+  background-image: repeating-linear-gradient(90deg,
+    #F9FCFB 0px, #FBFDFC 10px, #FEFEFE 30px, #FFFFFF 44px,
+    #F7FAF9 45px, #F7FAF9 46px);
+}
