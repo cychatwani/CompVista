@@ -19,6 +19,7 @@ export type Analytics = {
   distribution: { start: number; step: number; bands: { from: number; to: number; employees: number }[] } | null;
   components: { id: string; code: string; name: string; category: 'EARNING' | 'EMPLOYER_CONTRIBUTION' | 'EMPLOYEE_DEDUCTION'; employees: number; annual: string; oneTime: string }[] | null;
   matrix: { departmentId: string | null; countryCode: string; headcount: number; employees: number; averageCtc: string | null }[];
+  levels: { level: string; employees: number; min: string; p25: string; median: string; p75: string; max: string; average: string }[] | null;
   approvals: { pending: number; ages: { key: string; label: string; requests: number }[]; recent: { id: string; employee: { id: string; displayName: string; countryCode: string; department: string | null }; submitter: string | null; submittedAt: string | null; effectiveFrom: string; currencyCode: string; annualCtc: string }[] };
 };
 

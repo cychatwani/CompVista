@@ -5,7 +5,7 @@ import { IconArrowRight, IconChartDots, IconLayoutDashboard } from '@tabler/icon
 import SidebarDemo from '@/components/sidebar-demo';
 import { Flag } from '@/components/flag';
 import { useAnalytics, useFilters, type Analytics, type Filters } from './data';
-import { ApprovalsPanel, CompositionChart, CountryChart, CurrencyPrompt, DepartmentChart, DepartmentTable, DistributionChart, KpiRow, Matrix } from './charts';
+import { ApprovalsPanel, CompositionChart, CountryChart, CurrencyPrompt, DepartmentChart, DepartmentTable, DistributionChart, KpiRow, LevelChart, Matrix } from './charts';
 import { FilterBar, LoadError, Skeleton } from './ui';
 
 const switchLink = 'inline-flex h-10 items-center gap-2 rounded-lg border border-[#B7CAC7] bg-white px-4 text-sm font-semibold text-[var(--deep-teal)] hover:bg-[#EEF4F3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]';
@@ -69,6 +69,7 @@ export function Insights() {
         <CurrencyPrompt data={data} set={set} />
         <SelectionNote data={data} filters={filters} />
         <Matrix data={data} filters={filters} set={set} />
+        <LevelChart data={data} />
         <DepartmentTable data={data} filters={filters} />
         <div className="grid items-start gap-6 xl:grid-cols-2">
           <CompositionChart data={data} />

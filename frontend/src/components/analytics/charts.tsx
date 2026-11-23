@@ -294,3 +294,42 @@ export function DepartmentTable({ data, filters }: { data: Analytics; filters: F
     </div>
   </Panel>;
 }
+
+const levelNames: Record<string, string> = { JUNIOR: 'Junior', MID: 'Mid', SENIOR: 'Senior', LEAD: 'Lead', MANAGER: 'Manager', DIRECTOR: 'Director', UNSET: 'No level' };
+
+/** Pay spread per level: whiskers are min–max, the box is the middle 50%, the tick is the median. */
+export function LevelChart({ data }: { data: Analytics }) {
+  const { currency, levels } = data;
+  if (!currency || !levels) return <Panel title="Pay by level" description="How pay spreads within each job level."><Empty title="Choose a currency to compare pay by level">Levels are compared within one currency.</Empty></Panel>;
+  const ceiling = Math.max(...levels.map((row) => Number(row.max)), 1);
+  const at = (value: string) => `${(Number(value) / ceiling) * 100}%`;
+  return <Panel title="Pay by level" description={`Annual CTC per job level, ${currency.code}. Line: lowest to highest · box: middle 50% · tick: median.`}>
+    {levels.length ? <div className="-mx-1 overflow-x-auto px-1">
+      <table className="w-full min-w-[640px] text-left text-sm">
+        <caption className="sr-only">Annual CTC by job level in {currency.code}</caption>
+        <thead><tr className="border-b border-[var(--rule)] text-xs text-[var(--muted-text)]">
+          <th scope="col" className="w-24 py-2 font-medium">Level</th><th scope="col" className="py-2 font-medium">Spread</th>
+          <th scope="col" className="w-20 py-2 text-right font-medium">People</th><th scope="col" className="w-24 py-2 text-right font-medium">Median</th><th scope="col" className="w-24 py-2 text-right font-medium">Average</th>
+        </tr></thead>
+        <tbody className="divide-y divide-[var(--rule)]">
+          {levels.map((row) => <tr key={row.level}>
+            <th scope="row" className="py-3 font-medium text-[var(--charcoal)]">{levelNames[row.level] ?? row.level}</th>
+            <td className="py-3 pr-6">
+              <span tabIndex={0} aria-label={`${levelNames[row.level] ?? row.level}: lowest ${money(row.min, currency)}, middle half ${money(row.p25, currency)} to ${money(row.p75, currency)}, median ${money(row.median, currency)}, highest ${money(row.max, currency)}`}
+                className="group relative block h-6 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--deep-teal)]">
+                <span aria-hidden="true" className="absolute top-1/2 h-px -translate-y-1/2 bg-[#9FB4B0]" style={{ left: at(row.min), width: `calc(${at(row.max)} - ${at(row.min)})` }} />
+                <span aria-hidden="true" className="absolute inset-y-1 rounded-[3px] bg-[var(--jade)]/80 group-hover:bg-[var(--deep-teal)]" style={{ left: at(row.p25), width: `max(3px, calc(${at(row.p75)} - ${at(row.p25)}))` }} />
+                <span aria-hidden="true" className="absolute inset-y-0 w-0.5 rounded bg-[var(--charcoal)]" style={{ left: at(row.median) }} />
+                <Tip align="start"><span className="block font-semibold">{levelNames[row.level] ?? row.level} · {count(row.employees)} people</span><span className="block">Median {money(row.median, currency)}</span><span className="block">Middle half {money(row.p25, currency)} – {money(row.p75, currency)}</span><span className="block">Range {money(row.min, currency)} – {money(row.max, currency)}</span></Tip>
+              </span>
+            </td>
+            <td className="py-3 text-right tabular-nums text-[var(--muted-text)]">{count(row.employees)}</td>
+            <td className="py-3 text-right font-semibold tabular-nums" title={money(row.median, currency)}>{shortMoney(row.median, currency)}</td>
+            <td className="py-3 text-right tabular-nums" title={money(row.average, currency)}>{shortMoney(row.average, currency)}</td>
+          </tr>)}
+        </tbody>
+      </table>
+      <p className="mt-3 flex justify-between text-[11px] tabular-nums text-[var(--muted-text)]" aria-hidden="true"><span>{shortMoney(0, currency)}</span><span>{shortMoney(ceiling / 2, currency)}</span><span>{shortMoney(ceiling, currency)}</span></p>
+    </div> : <Empty title={`No ${currency.code} packages match these filters`} />}
+  </Panel>;
+}

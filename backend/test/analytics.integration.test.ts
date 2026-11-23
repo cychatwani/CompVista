@@ -94,6 +94,7 @@ test('analytics aggregates per currency, excludes deductions, filters, and stays
     const components = Object.fromEntries(inr.components!.map((row) => [row.code, Number(row.annual)]));
     assert.deepEqual(components, { BASIC: 2_100_000, BONUS: 60_000, EMPLOYER_PF: 144_000, EMPLOYEE_PF: 144_000 });
     assert.equal(inr.distribution!.bands.reduce((sum, band) => sum + band.employees, 0), 3);
+    assert.deepEqual(inr.levels, [{ level: 'UNSET', employees: 3, min: '300000.00', p25: '480000.00', median: '660000.00', p75: '1002000.00', max: '1344000.00', average: '768000.00' }], 'per-level spread with exact quartiles');
     const engineering = inr.departments.find((row) => row.name === 'Engineering')!;
     assert.deepEqual([engineering.headcount, engineering.employees, Number(engineering.annualCtc)], [3, 2, 1_644_000]);
     assert.equal(inr.matrix.find((cell) => cell.countryCode === 'IN' && cell.departmentId === departments[orgA].ENG)!.headcount, 2);

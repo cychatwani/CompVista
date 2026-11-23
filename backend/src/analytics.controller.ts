@@ -2,7 +2,7 @@ import { Controller, Get, Req } from '@nestjs/common';
 import { Prisma } from './generated/prisma/client.js';
 import { PrismaService } from './prisma/prisma.service.js';
 import { CompensationController } from './compensation.controller.js';
-import { ageBuckets, employeeScope, parseFilters, salaryBands, scoped, type AnalyticsFilters } from './analytics.js';
+import { ageBuckets, employeeScope, levelOrder, parseFilters, salaryBands, scoped, type AnalyticsFilters } from './analytics.js';
 
 type RequestWithQuery = { headers: { cookie?: string }; query?: Record<string, string | undefined> };
 type CurrencyRow = { code: string; name: string; symbol: string; decimal_places: number };
@@ -41,7 +41,7 @@ export class AnalyticsController {
     const code = currency?.code ?? null;
     const round = (value: string) => currency ? new Prisma.Decimal(value).toDecimalPlaces(currency.decimal_places, Prisma.Decimal.ROUND_HALF_UP).toFixed(currency.decimal_places) : value;
 
-    const [money, byDepartment, byCountry, countryCurrencies, components, matrix, approvals] = await Promise.all([
+    const [money, byDepartment, byCountry, countryCurrencies, components, matrix, approvals, levels] = await Promise.all([
       code ? this.money(base, code) : null,
       this.group({ ...base, skipDepartment: true, currency: code }, 'department_id'),
       this.group({ ...base, skipCountry: true, currency: code }, 'country_code'),
@@ -51,6 +51,7 @@ export class AnalyticsController {
       code ? this.components(base, code) : null,
       this.matrix(base, code),
       this.approvals(org, filters),
+      code ? this.levels(base, code) : null,
     ]);
     const distribution = code && money && money.employees > 0 ? await this.distribution(base, code, Number(money.min), Number(money.max)) : null;
     const departmentName = new Map(departments.map((item) => [item.id, item.name]));
@@ -77,7 +78,21 @@ export class AnalyticsController {
       components: components?.map((row) => ({ id: row.id, code: row.code, name: row.name, category: row.category, employees: row.employees, annual: round(row.annual), oneTime: round(row.one_time) })) ?? null,
       matrix: matrix.map((row) => ({ departmentId: row.department_id, countryCode: row.country_code, headcount: row.headcount, employees: row.employees, averageCtc: code && row.average ? round(row.average) : null })),
       approvals,
+      levels: levels?.map((row) => ({ level: row.level, employees: row.employees, min: round(row.min), p25: round(row.p25), median: round(row.median), p75: round(row.p75), max: round(row.max), average: round(row.average) })) ?? null,
     };
+  }
+
+  // Pay spread per job level for one currency: quartiles show the band, min/max the outliers.
+  private async levels(base: { organizationId: string; filters: AnalyticsFilters }, currency: string) {
+    const rows = await this.prisma.$queryRaw<{ level: string; employees: number; min: string; p25: string; median: string; p75: string; max: string; average: string }[]>(scoped({ ...base, currency }, Prisma.sql`
+      SELECT COALESCE(job_level, 'UNSET') AS level, count(*)::int AS employees, min(ctc)::text AS min,
+        percentile_cont(0.25) WITHIN GROUP (ORDER BY ctc)::numeric::text AS p25,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY ctc)::numeric::text AS median,
+        percentile_cont(0.75) WITHIN GROUP (ORDER BY ctc)::numeric::text AS p75,
+        max(ctc)::text AS max, avg(ctc)::text AS average
+      FROM pkg GROUP BY 1`));
+    const rank = (level: string) => { const index = (levelOrder as readonly string[]).indexOf(level); return index < 0 ? levelOrder.length : index; };
+    return rows.sort((a, b) => rank(a.level) - rank(b.level));
   }
 
   private async currency(code: string): Promise<CurrencyRow | null> {

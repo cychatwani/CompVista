@@ -32,7 +32,7 @@ export function employeeScope({ organizationId, filters, skipCountry, skipDepart
   if (filters.country && !skipCountry) conditions.push(Prisma.sql`e."countryCode" = ${filters.country}`);
   if (filters.departmentId && !skipDepartment) conditions.push(Prisma.sql`e."departmentId" = ${filters.departmentId}::uuid`);
   return Prisma.sql`emp AS (
-    SELECT e.id, e."departmentId" AS department_id, e."countryCode" AS country_code
+    SELECT e.id, e."departmentId" AS department_id, e."countryCode" AS country_code, e."jobLevel" AS job_level
     FROM employee e WHERE ${Prisma.join(conditions, ' AND ')}
   )`;
 }
@@ -44,7 +44,7 @@ export function employeeScope({ organizationId, filters, skipCountry, skipDepart
  */
 export function packageScope(organizationId: string, currency: string | null | undefined): Prisma.Sql {
   return Prisma.sql`pkg AS (
-    SELECT c.id, c.employee_id, c.currency_code, emp.department_id, emp.country_code,
+    SELECT c.id, c.employee_id, c.currency_code, emp.department_id, emp.country_code, emp.job_level,
       COALESCE(SUM(i.annual_amount) FILTER (WHERE d.category = 'EARNING'), 0) AS gross,
       COALESCE(SUM(i.annual_amount) FILTER (WHERE d.category = 'EMPLOYER_CONTRIBUTION'), 0) AS employer,
       COALESCE(SUM(i.annual_amount) FILTER (WHERE d.category = 'EMPLOYEE_DEDUCTION'), 0) AS deductions,
@@ -55,7 +55,7 @@ export function packageScope(organizationId: string, currency: string | null | u
     JOIN compensation_component_definition d ON d.id = i.component_definition_id
     WHERE c.organization_id = ${organizationId} AND c.status = 'ACTIVE'
       ${currency ? Prisma.sql`AND c.currency_code = ${currency}` : Prisma.empty}
-    GROUP BY c.id, emp.department_id, emp.country_code
+    GROUP BY c.id, emp.department_id, emp.country_code, emp.job_level
   )`;
 }
 
@@ -73,6 +73,9 @@ export function salaryBands(min: number, max: number, target = 10): { start: num
   const count = Math.max(1, Math.floor((max - start) / step) + 1);
   return { start, step, count };
 }
+
+/** Job levels in seniority order; analytics report them in this order. */
+export const levelOrder = ['JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MANAGER', 'DIRECTOR'] as const;
 
 /** Pending-approval age buckets, in days since submission. */
 export const ageBuckets = [
