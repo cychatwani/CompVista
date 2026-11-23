@@ -20,6 +20,11 @@ export const auth = betterAuth({
   trustedOrigins: [process.env.FRONTEND_URL ?? 'http://localhost:3000'],
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   emailAndPassword: { enabled: true, disableSignUp: process.env.COMPVISTA_SEED !== '1' },
+  // Every browser request reaches this API through the Next.js server, so Better Auth cannot
+  // see a trusted client IP and keeps one shared bucket per path. Its default sign-in rule
+  // (3 per 10 s) would then lock out everyone after three logins by anyone. Allow a pace that
+  // suits a shared bucket; strong passwords and TOTP remain the main brute-force defence.
+  rateLimit: { customRules: { '/sign-in/*': { window: 60, max: 60 } } },
   disabledPaths: process.env.COMPVISTA_SEED === '1' ? [] : [
     '/sign-up/email',
     '/organization/create',

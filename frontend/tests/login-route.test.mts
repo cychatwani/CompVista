@@ -23,3 +23,10 @@ test("invalid credentials are not retried", async () => {
   try { const response = await POST(request()); assert.equal(calls, 1); assert.equal(response.status, 401); }
   finally { globalThis.fetch = original; }
 });
+test("rate-limited sign-in explains the wait instead of a generic failure", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ message: "Too many requests. Please try again later." }), { status: 429 }); };
+  try { const response = await POST(request()); assert.equal(calls, 1); assert.equal(response.status, 429); assert.match((await response.json()).error, /Too many sign-in attempts/); }
+  finally { globalThis.fetch = original; }
+});

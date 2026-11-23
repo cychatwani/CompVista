@@ -23,6 +23,7 @@ export async function POST(request: Request) {
       body: JSON.stringify(credentials), cache: "no-store",
     }));
     const result = await upstream.json().catch(() => ({}));
+    if (upstream.status === 429) return NextResponse.json({ error: "Too many sign-in attempts. Wait a minute and try again." }, { status: 429 });
     if (!upstream.ok) return NextResponse.json({ error: upstream.status === 401 ? "Invalid email or password" : upstream.status >= 500 ? "Sign in is temporarily unavailable" : "Sign in failed" }, { status: upstream.status === 401 ? 401 : upstream.status >= 500 ? 503 : 400 });
     const cookies = upstream.headers.getSetCookie();
     const cookieHeader = cookies.map((cookie) => cookie.split(";", 1)[0]).join("; ");
